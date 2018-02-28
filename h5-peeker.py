@@ -9,8 +9,6 @@ from glob import glob
 import numpy as np
 #import mpmath
 import matplotlib.pyplot as plt
-from sdds import SDDS as ssds
-#from math import sqrt
 from scipy import optimize as opt
 from scipy import interpolate
 from io import StringIO
@@ -18,6 +16,7 @@ from datetime import datetime
 import csv
 import array
 import h5py
+import time
 
 class Object(object):
     pass
@@ -33,12 +32,63 @@ parser.add_argument('input', type=argparse.FileType('rb'), nargs='+', help="File
 args = parser.parse_args()
 
 def visitFunction(name, obj):
+    root = obj.file.get('/')
+    sampleName = root.attrs.get('sample_name')
+    trigger = root.attrs.get('trigger_id')
+    now = time.gmtime(root.attrs.get('timestamp'))
+    titleString = str(trigger) + '|' + sampleName + '|' + time.strftime("%a, %d %b %Y %H:%M:%S +0000", now)
+    
     print(name)
     for key, val in obj.attrs.items():
         print('    ' + str(key) + ': ' + str(val))
     
     if type(obj) is h5py._hl.dataset.Dataset:
-        print(obj)
+        print(obj.name+' <-- dataset')
+        if 'Manta camera' in obj.parent.attrs.values():  # camera plot
+            fig = plt.figure()
+            camData = obj[:]
+            plt.matshow(camData,fignum=fig.number)
+            plt.title('Camera|'+titleString)
+            plt.colorbar()
+            
+            print("Camera Average:",np.average(camData),"[counts]")
+            
+
+        elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_data' in obj.name):  # spectrometer plot
+            parent = obj.parent
+            x = parent.get('x_values')[:]
+            xlen = len(x)
+            y = parent.get('y_data')[0:xlen]
+            y_scale = parent.get('y_scale')[0:xlen]
+            # fit to dual lorentzian
+            #y = y/y_scale
+            
+            print("Spectrometer Average:",np.average(y),"[counts]")
+            
+            plt.figure()
+            plt.plot(x,y)
+            plt.xlabel('Wavelength [nm]')
+            plt.ylabel('Spectrometer Counts')
+            
+            plt.title('Emission Spectra|'+titleString)
+            plt.tight_layout()
+            
+        elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('wavefront' in obj.name) and ('y_data' in obj.name):
+            parent = obj.parent
+            x = parent.get('x_data')[:]
+            y = parent.get('y_data')[:]
+            plt.figure()
+            plt.plot(x*1000,y*1e9)
+            
+            print("Current Average:",np.average(y*1e9),"[nA]")
+            
+            plt.title('Beam Current|'+titleString)
+            
+            plt.xlabel('Time [ms]')
+            plt.ylabel('Current [nA]')            
+            
+            
+            #print(obj)
         #if(len(obj[:].shape) == 2):
             #plt.matshow(obj[:])
             #plt.colorbar()
@@ -65,6 +115,10 @@ for f in args.input:
     # top level attributes
     for key, val in root.attrs.items():
         print('    ' + str(key) + ': ' + str(val))
+    #for key,val in root.items():
+    #    obj = 
+    #    print(key,val)
     f.visititems(lambda obj, name: visitFunction(obj, name))
+    plt.show()
     print("")
     print("")
