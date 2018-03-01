@@ -18,6 +18,8 @@ import array
 import h5py
 import time
 
+from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
+
 class Object(object):
     pass
 
@@ -34,9 +36,16 @@ args = parser.parse_args()
 def visitFunction(name, obj):
     root = obj.file.get('/')
     sampleName = root.attrs.get('sample_name')
+    
+    # TODO: remove this hack
+    stageSample = root['data/linearstage/standa'].attrs.get('Current_sample')
+    if sampleName != stageSample:
+        sampleName = stageSample
+
+    
     trigger = root.attrs.get('trigger_id')
     now = time.gmtime(root.attrs.get('timestamp'))
-    titleString = str(trigger) + '|' + sampleName + '|' + time.strftime("%a, %d %b %Y %H:%M:%S +0000", now)
+    titleString = str(trigger) + '|' + sampleName + '|' + time.strftime("%a, %d %b %Y %H:%M:%S", now)
     
     print(name)
     for key, val in obj.attrs.items():
@@ -47,7 +56,8 @@ def visitFunction(name, obj):
         if 'Manta camera' in obj.parent.attrs.values():  # camera plot
             fig = plt.figure()
             camData = obj[:]
-            plt.matshow(camData,fignum=fig.number)
+            ax = plt.matshow(camData,fignum=fig.number,origin='lower')
+            ax.axes.xaxis.tick_bottom()
             plt.title('Camera|'+titleString)
             plt.colorbar()
             
@@ -56,36 +66,70 @@ def visitFunction(name, obj):
 
         elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_data' in obj.name):  # spectrometer plot
             parent = obj.parent
-            x = parent.get('x_values')[:]
-            xlen = len(x)
-            y = parent.get('y_data')[0:xlen]
+            xPlot = parent.get('x_values')[:]
+            xlen = len(xPlot)
+            yPlot = parent.get('y_data')[0:xlen]  # TODO doubcle chek this length
             y_scale = parent.get('y_scale')[0:xlen]
-            # fit to dual lorentzian
-            #y = y/y_scale
+            # TODO: fit to dual lorentzian
+            #y = y/y_scale # TODO: check scaling
             
-            print("Spectrometer Average:",np.average(y),"[counts]")
+            # wavelength range overwhich we'll fit
+            fitRange = (685, 705) # nm
+            lMask = xPlot >= fitRange[0]
+            uMask = xPlot <= fitRange[1]
+            
+            x = xPlot[lMask & uMask]
+            y = yPlot[lMask & uMask]
+            yMean = np.average(y)
+            
+            mod = LinearModel()
+            lPars = mod.guess(y, x=x)
+            
+            mod = LorentzianModel(prefix='A_')
+            A_zPars = mod.guess(y-yMean, x=x)
+            A_zPars['A_center'].value = A_zPars['A_center'].value - 1
+            
+            mod = LorentzianModel(prefix='B_')
+            B_zPars = mod.guess(y-yMean, x=x)
+            B_zPars['B_center'].value = B_zPars['B_center'].value + 1
+            
+            pars = lPars + A_zPars + B_zPars
+            
+            mod = LinearModel() + LorentzianModel(prefix='A_') + LorentzianModel(prefix='B_')
+                     
+            result  = mod.fit(y, pars, x=x)
+            #print(result.fit_report(min_correl=0.25))
+            print("Peak A @",A_zPars['A_center'])
             
             plt.figure()
-            plt.plot(x,y)
+            plt.plot(xPlot,yPlot, marker='.',)
+            plt.plot(x, result.best_fit, 'r-')
+            
             plt.xlabel('Wavelength [nm]')
             plt.ylabel('Spectrometer Counts')
-            
             plt.title('Emission Spectra|'+titleString)
             plt.tight_layout()
+            plt.grid()
             
         elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('wavefront' in obj.name) and ('y_data' in obj.name):
             parent = obj.parent
             x = parent.get('x_data')[:]
             y = parent.get('y_data')[:]
             plt.figure()
-            plt.plot(x*1000,y*1e9)
+            currentAverage = np.average(y)
+            plt.plot(x*1000, y*1e9, marker='.', label='Data')
+            plt.plot((x[0]*1000,x[-1]*1000), (currentAverage*1e9,currentAverage*1e9), 'r--', label='Average = {:.0f} [nA]'.format(currentAverage*1e9))
             
-            print("Current Average:",np.average(y*1e9),"[nA]")
             
-            plt.title('Beam Current|'+titleString)
             
-            plt.xlabel('Time [ms]')
-            plt.ylabel('Current [nA]')            
+            print("Current Average:",currentAverage*1e9,"[nA]")
+            
+            plt.title('Beam Current|' + titleString)
+            
+            plt.xlabel('Time Since Trigger Event [ms]')
+            plt.ylabel('Beam Current [nA]')
+            plt.grid()
+            plt.legend()
             
             
             #print(obj)
