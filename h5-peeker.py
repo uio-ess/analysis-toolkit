@@ -17,6 +17,7 @@ import csv
 import array
 import h5py
 import time
+import openpyxl
 
 from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
 
@@ -27,11 +28,27 @@ parser = argparse.ArgumentParser(description='Peek at beam diagnostic data in hd
 parser.add_argument('--save-image', dest='saveImage', action='store_true', default=False, help="Save data .pgm images to /tmp/pgms/")
 parser.add_argument('--save-report', dest='saveReport', action='store_true', default=False, help="Save analysis report .pdfs to /tmp/pdfs/")
 parser.add_argument('--draw-plot', dest='drawPlot', action='store_true', default=False, help="Draw data plot or each file processed")
-parser.add_argument('--csv-out', type=argparse.FileType('w'), help="Save analysis data to csv file")
+parser.add_argument('--xlsx-out', type=argparse.FileType('w+'), help="Save analysis data to xlsx file")
 parser.add_argument("--do-not-fit", dest='dontFit', action='store_true', default=False, help="Do not attempt to fit the data to a 2D gaussian")
 parser.add_argument('--use-parameter-files', dest='pFiles', type=argparse.FileType('r'), nargs='*', help="Read additional timestamed parameters from these files")
 parser.add_argument('input', type=argparse.FileType('rb'), nargs='+', help="File(s) to process")
 args = parser.parse_args()
+
+if args.xlsx_out is not None:
+    filename,file_ext = os.path.splitext(args.xlsx_out.name)
+    if file_ext != '.xlsx':
+        print("Error: xlsx file name must end in .xlsx")
+        exit(1)
+    if os.path.exists(args.xlsx_out.name):
+        wb = openpyxl.load_workbook(args.xlsx_out.name)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        
+    csvWriter = csv.DictWriter(args.csv_out,fieldnames=fieldNames)
+    csvWriter.writeheader()
+    args.csv_out.flush()
 
 def visitFunction(name, obj):
     root = obj.file.get('/')
@@ -70,7 +87,6 @@ def visitFunction(name, obj):
             xlen = len(xPlot)
             yPlot = parent.get('y_data')[0:xlen]  # TODO doubcle chek this length
             y_scale = parent.get('y_scale')[0:xlen]
-            # TODO: fit to dual lorentzian
             #y = y/y_scale # TODO: check scaling
             
             # wavelength range overwhich we'll fit
@@ -107,18 +123,19 @@ def visitFunction(name, obj):
             
             plt.xlabel('Wavelength [nm]')
             plt.ylabel('Spectrometer Counts')
-            plt.title('Emission Spectra|'+titleString)
+            plt.title('Emission Spectrum|'+titleString)
             plt.tight_layout()
             plt.grid()
             
         elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('wavefront' in obj.name) and ('y_data' in obj.name):
             parent = obj.parent
             x = parent.get('x_data')[:]
-            y = parent.get('y_data')[:]
+            totalDuration = x[-1] - x[0]
+            y = abs(parent.get('y_data')[:])
             plt.figure()
             currentAverage = np.average(y)
             plt.plot(x*1000, y*1e9, marker='.', label='Data')
-            plt.plot((x[0]*1000,x[-1]*1000), (currentAverage*1e9,currentAverage*1e9), 'r--', label='Average = {:.0f} [nA]'.format(currentAverage*1e9))
+            plt.plot((x[0]*1000,x[-1]*1000), (currentAverage*1e9,currentAverage*1e9), 'r--', label='{:.0f} ms Average = {:.0f} [nA]'.format(totalDuration*1e3,currentAverage*1e9))
             
             
             
@@ -130,6 +147,8 @@ def visitFunction(name, obj):
             plt.ylabel('Beam Current [nA]')
             plt.grid()
             plt.legend()
+            
+            
             
             
             #print(obj)
@@ -166,3 +185,8 @@ for f in args.input:
     plt.show()
     print("")
     print("")
+    
+    if args.xlsx_out is not None:
+        wb.save(args.xlsx_out.name)
+    
+    
