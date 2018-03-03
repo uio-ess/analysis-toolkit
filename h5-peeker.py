@@ -17,7 +17,7 @@ import csv
 import array
 import h5py
 import time
-import openpyxl
+import dataset
 
 from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
 
@@ -28,27 +28,39 @@ parser = argparse.ArgumentParser(description='Peek at beam diagnostic data in hd
 parser.add_argument('--save-image', dest='saveImage', action='store_true', default=False, help="Save data .pgm images to /tmp/pgms/")
 parser.add_argument('--save-report', dest='saveReport', action='store_true', default=False, help="Save analysis report .pdfs to /tmp/pdfs/")
 parser.add_argument('--draw-plot', dest='drawPlot', action='store_true', default=False, help="Draw data plot or each file processed")
-parser.add_argument('--xlsx-out', type=argparse.FileType('w+'), help="Save analysis data to xlsx file")
-parser.add_argument("--do-not-fit", dest='dontFit', action='store_true', default=False, help="Do not attempt to fit the data to a 2D gaussian")
+parser.add_argument('--h5-backend', type=argparse.FileType('ab'), help="Save/append analysis data to this HDF5 file")
+parser.add_argument('--create-spreadsheet', type=argparse.FileType('x'), help="Create this spreadsheet using HDF5 backend file given in the --h5-backend argument")
 parser.add_argument('--use-parameter-files', dest='pFiles', type=argparse.FileType('r'), nargs='*', help="Read additional timestamed parameters from these files")
-parser.add_argument('input', type=argparse.FileType('rb'), nargs='+', help="File(s) to process")
+parser.add_argument('input', type=argparse.FileType('r'), nargs='+', help="File(s) to process")
 args = parser.parse_args()
 
-if args.xlsx_out is not None:
-    filename,file_ext = os.path.splitext(args.xlsx_out.name)
-    if file_ext != '.xlsx':
-        print("Error: xlsx file name must end in .xlsx")
+if args.h5_backend is not None:
+    filename,file_ext = os.path.splitext(args.h5_backend.name)
+    if file_ext != '.h5':
+        print("Error: HDF5 file name must end in .h5")
         exit(1)
-    if os.path.exists(args.xlsx_out.name):
-        wb = openpyxl.load_workbook(args.xlsx_out.name)
-        ws = wb.active
+    args.h5_backend.close()
+    
+    if os.path.getsize(args.h5_backend.name) == 0:
+        newFile = False
     else:
-        wb = Workbook()
-        ws = wb.active
+        newFile = True
+
+    be = h5py.File(args.h5_backend.name)
+    #beRoot = be.get('/')
+else:
+    be = None
         
-    csvWriter = csv.DictWriter(args.csv_out,fieldnames=fieldNames)
-    csvWriter.writeheader()
-    args.csv_out.flush()
+    #csvWriter = csv.DictWriter(args.csv_out,fieldnames=fieldNames)
+    #csvWriter.writeheader()
+    #args.csv_out.flush()
+    
+def spreadsheetWrite(key,value):
+    if newFile:
+        nCols = len(ws.columns)
+        ws.append({nCols+1:key})
+    
+    ws.append({nCols+1:value})
 
 def visitFunction(name, obj):
     root = obj.file.get('/')
@@ -58,6 +70,8 @@ def visitFunction(name, obj):
     stageSample = root['data/linearstage/standa'].attrs.get('Current_sample')
     if sampleName != stageSample:
         sampleName = stageSample
+        
+    beSample = be.require_dataset('Sample Name')
 
     
     trigger = root.attrs.get('trigger_id')
@@ -167,6 +181,7 @@ def visitFunction(name, obj):
 
 # loop through each file in the input
 for f in args.input:
+    f.close()
     fullPath = f.name
     fileName = os.path.basename(f.name)
     print('Processing', fullPath, '...')
@@ -185,8 +200,9 @@ for f in args.input:
     plt.show()
     print("")
     print("")
+    newFile = False
     
-    if args.xlsx_out is not None:
-        wb.save(args.xlsx_out.name)
+if args.xlsx_out is not None:
+    wb.save(args.xlsx_out.name)
     
     
