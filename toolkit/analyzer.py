@@ -397,7 +397,9 @@ class analyzer:
           self.sd['t_camExposure'] = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
         elif val == 'Thorlabs spectrometer':
           self.sd['t_spectrumExposure'] = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
-    
+        elif val == 'LairdTech temperature regulator':
+          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV']
+
     if type(obj) is h5py._hl.dataset.Dataset:
       print(obj.name+' <-- dataset')
       if 'Manta camera' in obj.parent.attrs.values():  # camera plot
