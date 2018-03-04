@@ -10,7 +10,7 @@ parser.add_argument('--draw-plots', dest='drawPlots', action='store_true', defau
 parser.add_argument('--database', default=':memory:', help="Save/append analysis data to this sqlite database file")
 parser.add_argument('--freeze-file', dest='freezeObj', type=argparse.FileType('x'), help="Freeze/draw data to a .csv file")
 parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Dump everything to the terminal during analysis")
-parser.add_argument('input', type=argparse.FileType('r'), nargs='+', help="File(s) to process")
+parser.add_argument('input', type=argparse.FileType('r'), nargs='*', help="File(s) to process")
 pArgs = parser.parse_args()
 
 if pArgs.freezeObj is not None:

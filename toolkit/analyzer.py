@@ -3,7 +3,9 @@ import dataset
 import datafreeze
 import os
 import io
+import re
 import time
+import hashlib
 import matplotlib.pylab as plt
 import numpy as np
 from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
@@ -44,7 +46,9 @@ class analyzer:
       session = "FEB '18 OCL"
       #session = root.attrs.get('session')  # TODO: insert session attr into sample HDF5 files
       self.sd['session'] = session
-      self.t = self.db[str(hash(session))]
+      safeSession = re.sub(r'\W+', '', session) # allow this to become a table name
+      self.t = self.db.create_table(safeSession, primary_id='int_hash', primary_type=self.db.types.bigint)
+      #self.t = self.db[str(hash(session))]
       # self.t.drop()
       
       # print top level attributes
@@ -66,7 +70,11 @@ class analyzer:
           attribute = int(attribute) # hopefully nothing is mangled here...
         self.sd[thingIWant] = attribute
         
-      self.titleString = str(self.sd['trigger_id']) + '|' + self.sd['sample_name'] + '|' + self.sd['session']
+      self.titleString = str(self.sd['trigger_id']) + '|' +\
+        self.sd['sample_name'] + '|' + self.sd['session']
+      
+      # this is the hash we use for the uniqueness test when adding/updating the database
+      self.sd['int_hash'] = int.from_bytes(hashlib.blake2s(self.titleString.encode(),digest_size=6).digest(),byteorder='big')
       
       # walk through the HDF5 file here, in no particular order...
       f.visititems(self.visitor)
@@ -75,7 +83,8 @@ class analyzer:
       self.postAnalysis()
       
       # store what we've learned in our database
-      self.t.insert(self.sd, ensure=True)
+      self.t.upsert(self.sd, ['int_hash'], ensure=True)
+      #self.t.insert(self.sd, ensure=True)
       
       print("")
       print("")
@@ -84,6 +93,14 @@ class analyzer:
     
     # dump the results to a csv file if the user asked for it
     if self.freezeObj is not None:
+      if self.files == []:  # we were called without processing new files
+        if len(self.db.tables) == 1:
+          tableName = self.db.tables[0]
+        else:
+          print('The tables available in the database are:')
+          print(self.db.tables)
+          tableName = input("Type one here --> ")
+        self.t = self.db.create_table(tableName, primary_id='int_hash', primary_type=self.db.types.bigint)
       result = self.t.all()
       datafreeze.freeze(result, format='csv', fileobj=self.freezeObj)
       print('Sooo cold! Data frozen to {:}'.format(self.freezeObj.name))
