@@ -407,17 +407,22 @@ class analyzer:
       plt.tight_layout()
       plt.grid()    
     
-    #print(result.fit_report(min_correl=0.25))
-    aHeight = result.params['A_height'].value
-    aCen = result.params['A_center'].value
-    bHeight = result.params['B_height'].value
-    bCen = result.params['B_center'].value
-    print("Peak A: {:.0f} counts @ {:.2f} [nm]".format(aHeight, aCen))
-    print("Peak B: {:.0f} counts @ {:.2f} [nm]".format(bHeight, bCen))
-    self.sd['aHeight'] = aHeight
-    self.sd['aCen'] = aCen
-    self.sd['bHeight'] = bHeight
-    self.sd['bCen'] = bCen
+    R2 = 1 - result.residual.var() / np.var(y)
+    R2Threshold = 0.8 # anything lower than this we'll consider a failed fit
+      
+    if R2 < R2Threshold:
+      aHeight = result.params['A_height'].value
+      aCen = result.params['A_center'].value
+      bHeight = result.params['B_height'].value
+      bCen = result.params['B_center'].value
+      print("Peak A: {:.0f} counts @ {:.2f} [nm]".format(aHeight, aCen))
+      print("Peak B: {:.0f} counts @ {:.2f} [nm]".format(bHeight, bCen))
+      self.sd['aHeight'] = aHeight
+      self.sd['aCen'] = aCen
+      self.sd['bHeight'] = bHeight
+      self.sd['bCen'] = bCen
+    else:
+      print("WARNING: Bad ruby peak fit.")
     
   def visitor(self, name, obj):
     print(name)
@@ -427,7 +432,7 @@ class analyzer:
           self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
           #self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
-          self.t_spectrumExposure = self.sd['t_spectrumExposure'] = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          self.t_spectrumExposure = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
           #self.sd['t_spectrumExposure'] = self.t_spectrumExposure
         elif val == 'LairdTech temperature regulator':
           self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV']
