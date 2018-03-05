@@ -35,6 +35,7 @@ class analyzer:
   def processFiles(self):
     # loop through each file in the input
     for f in self.files:
+      self.sd = {}  # initialize sample dictionary
       try:
         f.close()
         fullPath = f.name
@@ -75,10 +76,7 @@ class analyzer:
     #self.t = self.db[str(hash(session))]
     # self.t.drop()
     
-    # print top level attributes
-    for key, val in root.attrs.items():
-      print('\t{:}--> {:}'.format(key,val))
-      
+    # form row hash/title string out of sample name, trigger count and session
     attr = 'sample_name'
     self.sd[attr] = root.attrs.get(attr)
     try:
@@ -87,21 +85,31 @@ class analyzer:
       stageSample = None
     if (stageSample is not None) and (stageSample != self.sd[attr]):
       self.sd[attr] = stageSample
-      
-    # things i'm interested in here
+    
+    attr = 'trigger_id'
+    self.sd[attr] = root.attrs.get(attr)
+    
+    self.titleString = str(self.sd['trigger_id']) + '|' +\
+      self.sd['sample_name'] + '|' + self.sd['session']    
+    
+    # this is the hash we use for the uniqueness test when adding/updating the database
+    self.sd['int_hash'] = int.from_bytes(hashlib.blake2s(self.titleString.encode(),digest_size=6).digest(),byteorder='big')
+    
+    # now immediately write the unfinished row to the database so we have something on the file in case we fail later
+    self.t.upsert(self.sd, ['int_hash'], ensure=True)
+
+    # other things i'm interested in here
     #iWants = ('sample_name','session', ...)
-    iWants = ('trigger_id', 'experiment_description', 'sub_experiment')
+    iWants = ('experiment_description', 'sub_experiment')
     for thingIWant in iWants:
       attribute = root.attrs.get(thingIWant)
       if type(attribute) is np.int64:
         attribute = int(attribute) # hopefully nothing is mangled here...
       self.sd[thingIWant] = attribute
-      
-    self.titleString = str(self.sd['trigger_id']) + '|' +\
-      self.sd['sample_name'] + '|' + self.sd['session']
-    
-    # this is the hash we use for the uniqueness test when adding/updating the database
-    self.sd['int_hash'] = int.from_bytes(hashlib.blake2s(self.titleString.encode(),digest_size=6).digest(),byteorder='big')
+
+    # print top level attributes
+    for key, val in root.attrs.items():
+      print('\t{:}--> {:}'.format(key,val))    
     
     # walk through the HDF5 file here, in no particular order...
     f.visititems(self.visitor)
@@ -410,7 +418,7 @@ class analyzer:
     R2 = 1 - result.residual.var() / np.var(y)
     R2Threshold = 0.8 # anything lower than this we'll consider a failed fit
       
-    if R2 < R2Threshold:
+    if result.success and (R2 < R2Threshold):
       aHeight = result.params['A_height'].value
       aCen = result.params['A_center'].value
       bHeight = result.params['B_height'].value
