@@ -34,60 +34,14 @@ class analyzer:
   def processFiles(self):
     # loop through each file in the input
     for f in self.files:
-      f.close()
-      fullPath = f.name
-      fileName = os.path.basename(f.name)
-      print('Processing', fullPath, '...')
-      f = h5py.File(fullPath, 'r')
-    
-      root = f.get('/')
-      print('/')
-      
-      session = "FEB '18 OCL"
-      #session = root.attrs.get('session')  # TODO: insert session attr into sample HDF5 files
-      self.sd['session'] = session
-      safeSession = re.sub(r'\W+', '', session) # allow this to become a table name
-      self.t = self.db.create_table(safeSession, primary_id='int_hash', primary_type=self.db.types.bigint)
-      #self.t = self.db[str(hash(session))]
-      # self.t.drop()
-      
-      # print top level attributes
-      for key, val in root.attrs.items():
-        print('\t{:}--> {:}'.format(key,val))
-        
-      attr = 'sample_name'
-      self.sd[attr] = root.attrs.get(attr)
-      stageSample = root['data/linearstage/standa'].attrs.get('Current_sample')  # TODO: remove this hack
-      if stageSample != self.sd[attr]:
-        self.sd[attr] = stageSample
-        
-      # things i'm interested in here
-      #iWants = ('sample_name','session', ...)
-      iWants = ('trigger_id', 'experiment_description', 'sub_experiment')
-      for thingIWant in iWants:
-        attribute = root.attrs.get(thingIWant)
-        if type(attribute) is np.int64:
-          attribute = int(attribute) # hopefully nothing is mangled here...
-        self.sd[thingIWant] = attribute
-        
-      self.titleString = str(self.sd['trigger_id']) + '|' +\
-        self.sd['sample_name'] + '|' + self.sd['session']
-      
-      # this is the hash we use for the uniqueness test when adding/updating the database
-      self.sd['int_hash'] = int.from_bytes(hashlib.blake2s(self.titleString.encode(),digest_size=6).digest(),byteorder='big')
-      
-      # walk through the HDF5 file here, in no particular order...
-      f.visititems(self.visitor)
-      
-      # now we'll do some analysis that had to wait until we'd read the entire file
-      self.postAnalysis()
-      
-      # store what we've learned in our database
-      self.t.upsert(self.sd, ['int_hash'], ensure=True)
-      #self.t.insert(self.sd, ensure=True)
-      
-      print("")
-      print("")
+      try:
+        f.close()
+        fullPath = f.name
+        fileName = os.path.basename(f.name)
+        print('Processing', fullPath, '...')        
+        self.processOneFile(f)
+      except:
+        print("Failed to process {:}".format(f.name))
       self.drawPlots and plt.show()
     print("Done processing all files.")
     
@@ -105,6 +59,61 @@ class analyzer:
       datafreeze.freeze(result, format='csv', fileobj=self.freezeObj)
       print('Sooo cold! Data frozen to {:}'.format(self.freezeObj.name))
       self.freezeObj.close()
+      
+  def processOneFile(self, f):
+    f = h5py.File(fullPath, 'r')
+  
+    root = f.get('/')
+    print('/')
+    
+    session = "FEB '18 OCL"
+    #session = root.attrs.get('session')  # TODO: insert session attr into sample HDF5 files
+    self.sd['session'] = session
+    safeSession = re.sub(r'\W+', '', session) # allow this to become a table name
+    self.t = self.db.create_table(safeSession, primary_id='int_hash', primary_type=self.db.types.bigint)
+    #self.t = self.db[str(hash(session))]
+    # self.t.drop()
+    
+    # print top level attributes
+    for key, val in root.attrs.items():
+      print('\t{:}--> {:}'.format(key,val))
+      
+    attr = 'sample_name'
+    self.sd[attr] = root.attrs.get(attr)
+    try:
+      stageSample = root['data/linearstage/standa'].attrs.get('Current_sample')  # TODO: remove this hack
+    except:
+      stageSample = None
+    if (stageSample is not None) and (stageSample != self.sd[attr]):
+      self.sd[attr] = stageSample
+      
+    # things i'm interested in here
+    #iWants = ('sample_name','session', ...)
+    iWants = ('trigger_id', 'experiment_description', 'sub_experiment')
+    for thingIWant in iWants:
+      attribute = root.attrs.get(thingIWant)
+      if type(attribute) is np.int64:
+        attribute = int(attribute) # hopefully nothing is mangled here...
+      self.sd[thingIWant] = attribute
+      
+    self.titleString = str(self.sd['trigger_id']) + '|' +\
+      self.sd['sample_name'] + '|' + self.sd['session']
+    
+    # this is the hash we use for the uniqueness test when adding/updating the database
+    self.sd['int_hash'] = int.from_bytes(hashlib.blake2s(self.titleString.encode(),digest_size=6).digest(),byteorder='big')
+    
+    # walk through the HDF5 file here, in no particular order...
+    f.visititems(self.visitor)
+    
+    # now we'll do some analysis that had to wait until we'd read the entire file
+    self.postAnalysis()
+    
+    # store what we've learned in our database
+    self.t.upsert(self.sd, ['int_hash'], ensure=True)
+    #self.t.insert(self.sd, ensure=True)
+    
+    print("")
+    print("")    
 
   def postAnalysis(self):
     # compute the charge seen by the sample during data collection
@@ -130,43 +139,11 @@ class analyzer:
     self.sd['t_spectroCharge'] = np.trapz(y,x=x)  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
 
   def camAnalysis(self, camData):
-    camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount 
-    xRes = camData.shape[1]
-    yRes = camData.shape[0]
-    camData1D = camData.reshape([camData.size])
-    camAvg = camData.mean()
-    #print("Camera Average:",camAvg,"[photons]")
-    #self.sd['camAvg'] = camAvg
-    
-    params = analyzer.moments(camData)
+    camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
     camMax = camData.max()
-    # [amplitude, peakX, peakY, sigmaX, sigmaY, theta(rotation angle), avg (background offset level)]
-    initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
-    
-    # Create x and y grid
-    xv = np.linspace(0, xRes-1, xRes)
-    yv = np.linspace(0, yRes-1, yRes)
-    x, y = np.meshgrid(xv, yv)    
-
-    popt, pcov = opt.curve_fit(analyzer.twoD_Gaussian, (x, y), camData1D, p0=initial_guess, maxfev=999000)
-    
-    # the fit parameters in photons
-    amplitude = popt[0]
-    theta = popt[5]
-    peakPos = (popt[1],popt[2])
-    peakX = peakPos[0]
-    peakX = peakPos[1]
-    sigma = (popt[3],popt[4])
-    sigmaX = sigma[0]
-    sigmaY = sigma[1]
-    baseline = popt[6]
-    peak = amplitude+baseline
-    
-    self.sd['camSpotHeight'] = amplitude
-    self.sd['camSpotVolume'] = 2 * constants.pi * amplitude * sigmaX * sigmaY 
-    
-    print("Camera Spot Height: {:.0f} [photons]".format(self.sd['camSpotHeight']))
-    print("Camera Spot Volume: {:.0f} [photon*pixel^2]".format(self.sd['camSpotVolume']))
+    camAvg = camData.mean()
+    print("Camera Maximum:",camMax,"[photons]")
+    self.sd['camMax'] = camMax
     
     if self.drawPlots:
       # for the image
@@ -175,89 +152,140 @@ class analyzer:
       ax.axes.xaxis.tick_bottom()
       plt.title('Camera|' + self.titleString)
       plt.colorbar(label='Photons')
+    
+    if self.fitSpot:
+      xRes = camData.shape[1]
+      yRes = camData.shape[0]
+      camData1D = camData.reshape([camData.size])
       
-      # for the spot fit analysis
-      fitSurface1D = analyzer.twoD_Gaussian((x, y), *popt)
-      fitSurface2D = fitSurface1D.reshape([yRes,xRes])      
+      # this forms our initial guesses for the fit
+      params = analyzer.moments(camData)
       
-      # let's make some evaluation lines
-      nPoints = 100
-      nSigmas = 4 # line length, number of sigmas to plot in each direction
-      rA = np.linspace(-nSigmas*sigma[0],nSigmas*sigma[0],nPoints) # radii (in polar coords for line A)
-      AX = rA*np.cos(theta-np.pi/4) + peakPos[0] # x values for line A
-      AY = rA*np.sin(theta-np.pi/4) + peakPos[1] # y values for line A
-    
-      rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
-      BX = rB*np.cos(theta+np.pi/4) + peakPos[0] # x values for line B
-      BY = rB*np.sin(theta+np.pi/4) + peakPos[1] # y values for line B    
-    
-      f = interpolate.interp2d(xv, yv, camData) # linear interpolation for data surface
-    
-      lineAData = np.array([float(f(px,py)) for px,py in zip(AX,AY)])
-      lineAFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(AX,AY)])
-    
-      lineBData = np.array([float(f(px,py)) for px,py in zip(BX,BY)])
-      lineBFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(BX,BY)])
-    
-      residuals = lineBData - lineBFit
-      ss_res = np.sum(residuals**2)
-      ss_tot = np.sum((lineBData - np.mean(lineBData)) ** 2)
-      r2 = 1 - (ss_res / ss_tot)
+      # [amplitude, peakX, peakY, sigmaX, sigmaY, theta(rotation angle), avg (background offset level)]
+      initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
       
-      fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
-      fig.suptitle('Camera|' + self.titleString, fontsize=10)
-      axes[0,0].imshow(camData, cmap=plt.cm.copper, origin='bottom',
-                extent=(x.min(), x.max(), y.min(), y.max()))
-      if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
-        axes[0,0].contour(x, y, fitSurface2D, 3, colors='w')
-      else:
-        print('Warning: contour() bug avoided')
-      axes[0,0].plot(AX,AY,'r') # plot line A
-      axes[0,0].plot(BX,BY,'g') # plot line B
-      axes[0,0].set_title("Image Data")
-      axes[0,0].set_ylim([y.min(), y.max()])
-      axes[0,0].set_xlim([x.min(), x.max()])
-    
-      axes[1,0].plot(rA,lineAData,'r',label='Data')
-      axes[1,0].plot(rA,lineAFit,'k',label='Fit')
-      axes[1,0].set_title('Red Line Cut')
-      axes[1,0].set_xlabel('Distance from center of spot [pixels]')
-      axes[1,0].set_ylabel('Magnitude [photons]')
-      axes[1,0].grid(linestyle='--')
-      handles, labels = axes[1,0].get_legend_handles_labels()
-      axes[1,0].legend(handles, labels)        
-    
-      axes[1,1].plot(rB,lineBData,'g',label='Data')
-      axes[1,1].plot(rB,lineBFit,'k',label='Fit')
-      axes[1,1].set_title('Green Line Cut')
-      axes[1,1].set_xlabel('Distance from center of spot [pixels]')
-      axes[1,1].set_ylabel('Magnitude [photons]')
-      axes[1,1].grid(linestyle='--')
-      handles, labels = axes[1,1].get_legend_handles_labels()
-      axes[1,1].legend(handles, labels)           
-    
-      axes[0,1].axis('off')
+      # Create x and y grid
+      xv = np.linspace(0, xRes-1, xRes)
+      yv = np.linspace(0, yRes-1, yRes)
+      x, y = np.meshgrid(xv, yv)
       
-      logMessages = io.StringIO()
-      print("Green Line Cut R^2 =", r2, file=logMessages)
+      try:
+        fitResult = opt.curve_fit(analyzer.twoD_Gaussian, (x, y), camData1D, p0=initial_guess, maxfev=300, full_output=True)
+        popt = fitResult[0]
+        pconv = fitResult[1]
+        infodict = fitResult[2]
+        mesg = fitResult[3]
+        #print(infodict)
+        #print(mesg)
+        fitFail = False
+      except:
+        fitFail = True
+        popt = initial_guess
+        
+      # the fit parameters in photons
+      amplitude = popt[0]
+      theta = popt[5]
+      peakPos = (popt[1],popt[2])
+      peakX = peakPos[0]
+      peakX = peakPos[1]
+      sigma = (popt[3],popt[4])
+      sigmaX = sigma[0]
+      sigmaY = sigma[1]
+      baseline = popt[6]
       peak = amplitude+baseline
-      print("Peak =", peak, file=logMessages)
-      print("====Fit Parameters====", file=logMessages)
-      print("Amplitude =", amplitude, file=logMessages)
-      print("Center X =", peakPos[0], file=logMessages)
-      print("Center Y =", peakPos[1], file=logMessages)
-      print("Sigma X =", sigma[0], file=logMessages)
-      print("Sigma Y =", sigma[1], file=logMessages)
-      print("Rotation (in rad) =", theta, file=logMessages)
-      print("Baseline =", baseline, file=logMessages)
-      print("", file=logMessages)
-      logMessages.seek(0)
-      messages = logMessages.read()      
       
-      axes[0,1].text(0,0,messages)
+      volume = 2 * constants.pi * amplitude * sigmaX * sigmaY
       
+      if fitFail:
+        print('Camera spot 2D gaussian fit failure')
+      else:
+        self.sd['camSpotAmplitude'] = amplitude
+        self.sd['camSpotVolume'] = volume
+  
+      print("Camera Spot Height: {:.0f} [photons]".format(amplitude))
+      print("Camera Spot Volume: {:.0f} [photon*pixel^2]".format(volume))    
+    
+      if self.drawPlots:
+        # for the spot fit analysis
+        fitSurface1D = analyzer.twoD_Gaussian((x, y), *popt)
+        fitSurface2D = fitSurface1D.reshape([yRes,xRes])      
+        
+        # let's make some evaluation lines
+        nPoints = 100
+        nSigmas = 4 # line length, number of sigmas to plot in each direction
+        rA = np.linspace(-nSigmas*sigma[0],nSigmas*sigma[0],nPoints) # radii (in polar coords for line A)
+        AX = rA*np.cos(theta-np.pi/4) + peakPos[0] # x values for line A
+        AY = rA*np.sin(theta-np.pi/4) + peakPos[1] # y values for line A
       
+        rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
+        BX = rB*np.cos(theta+np.pi/4) + peakPos[0] # x values for line B
+        BY = rB*np.sin(theta+np.pi/4) + peakPos[1] # y values for line B    
       
+        f = interpolate.interp2d(xv, yv, camData) # linear interpolation for data surface
+      
+        lineAData = np.array([float(f(px,py)) for px,py in zip(AX,AY)])
+        lineAFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(AX,AY)])
+      
+        lineBData = np.array([float(f(px,py)) for px,py in zip(BX,BY)])
+        lineBFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(BX,BY)])
+      
+        residuals = lineBData - lineBFit
+        ss_res = np.sum(residuals**2)
+        ss_tot = np.sum((lineBData - np.mean(lineBData)) ** 2)
+        r2 = 1 - (ss_res / ss_tot)
+        
+        fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
+        fig.suptitle('Camera|' + self.titleString, fontsize=10)
+        axes[0,0].imshow(camData, cmap=plt.cm.copper, origin='bottom',
+                  extent=(x.min(), x.max(), y.min(), y.max()))
+        if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
+          axes[0,0].contour(x, y, fitSurface2D, 3, colors='w')
+        else:
+          print('Warning: contour() bug avoided')
+        axes[0,0].plot(AX,AY,'r') # plot line A
+        axes[0,0].plot(BX,BY,'g') # plot line B
+        axes[0,0].set_title("Image Data")
+        axes[0,0].set_ylim([y.min(), y.max()])
+        axes[0,0].set_xlim([x.min(), x.max()])
+      
+        axes[1,0].plot(rA,lineAData,'r',label='Data')
+        axes[1,0].plot(rA,lineAFit,'k',label='Fit')
+        axes[1,0].set_title('Red Line Cut')
+        axes[1,0].set_xlabel('Distance from center of spot [pixels]')
+        axes[1,0].set_ylabel('Magnitude [photons]')
+        axes[1,0].grid(linestyle='--')
+        handles, labels = axes[1,0].get_legend_handles_labels()
+        axes[1,0].legend(handles, labels)        
+      
+        axes[1,1].plot(rB,lineBData,'g',label='Data')
+        axes[1,1].plot(rB,lineBFit,'k',label='Fit')
+        axes[1,1].set_title('Green Line Cut')
+        axes[1,1].set_xlabel('Distance from center of spot [pixels]')
+        axes[1,1].set_ylabel('Magnitude [photons]')
+        axes[1,1].grid(linestyle='--')
+        handles, labels = axes[1,1].get_legend_handles_labels()
+        axes[1,1].legend(handles, labels)           
+      
+        axes[0,1].axis('off')
+        
+        logMessages = io.StringIO()
+        print("Green Line Cut R^2 =", r2, file=logMessages)
+        peak = amplitude+baseline
+        print("Peak =", peak, file=logMessages)
+        print("====Fit Parameters====", file=logMessages)
+        print("Amplitude =", amplitude, file=logMessages)
+        print("Center X =", peakPos[0], file=logMessages)
+        print("Center Y =", peakPos[1], file=logMessages)
+        print("Sigma X =", sigma[0], file=logMessages)
+        print("Sigma Y =", sigma[1], file=logMessages)
+        print("Rotation (in rad) =", theta, file=logMessages)
+        print("Baseline =", baseline, file=logMessages)
+        print("", file=logMessages)
+        logMessages.seek(0)
+        messages = logMessages.read()      
+        
+        axes[0,1].text(0,0,messages)
+
   # calculates a 2d gaussian's height, x, y position and x and y sigma values from surface height data
   def moments(data):
       """Returns (height, x, y, width_x, width_y)

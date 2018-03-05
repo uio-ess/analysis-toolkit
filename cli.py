@@ -7,6 +7,7 @@ from toolkit import analyzer
 
 parser = argparse.ArgumentParser(description='Peek at beam diagnostic data in hdf5 files')
 parser.add_argument('--draw-plots', dest='drawPlots', action='store_true', default=False, help="Draw analysis plots or each file processed")
+parser.add_argument('--no-spot-fit', dest='fitSpot', action='store_false', default=True, help="Do not fit camera data to 2D gaussian")
 parser.add_argument('--database', default=':memory:', help="Save/append analysis data to this sqlite database file")
 parser.add_argument('--freeze-file', dest='freezeObj', type=argparse.FileType('x'), help="Freeze/draw data to a .csv file")
 parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Dump everything to the terminal during analysis")
@@ -36,5 +37,5 @@ def print(*args, **kwargs): # overload the print() function
 __builtin__.print = print
 #========= end print override stuff =========
 
-a = analyzer(files = pArgs.input, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj)
+a = analyzer(files = pArgs.input, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj, fitSpot = pArgs.fitSpot)
 a.processFiles()
