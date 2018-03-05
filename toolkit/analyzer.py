@@ -208,7 +208,7 @@ class analyzer:
       baseline = popt[6]
       peak = amplitude+baseline
       
-      volume = 2 * constants.pi * amplitude * sigmaX * sigmaY
+      volume = abs(2 * constants.pi * amplitude * sigmaX * sigmaY)
       
       if fitFail:
         print('Camera spot 2D gaussian fit failure')
