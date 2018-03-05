@@ -418,7 +418,7 @@ class analyzer:
     R2 = 1 - result.residual.var() / np.var(y)
     R2Threshold = 0.8 # anything lower than this we'll consider a failed fit
       
-    if result.success and (R2 < R2Threshold):
+    if result.success and (R2 > R2Threshold):
       aHeight = result.params['A_height'].value
       aCen = result.params['A_center'].value
       bHeight = result.params['B_height'].value
@@ -430,6 +430,10 @@ class analyzer:
       self.sd['bHeight'] = bHeight
       self.sd['bCen'] = bCen
     else:
+      self.sd['aHeight'] = None
+      self.sd['aCen'] = None
+      self.sd['bHeight'] = None
+      self.sd['bCen'] = None      
       print("WARNING: Bad ruby peak fit.")
     
   def visitor(self, name, obj):
