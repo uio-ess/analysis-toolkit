@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # written by grey@christoforo.net
 
+# note: to increase the open file limit under linux use: ulimit -n 2048
+
 import argparse
 import os
 from toolkit import analyzer

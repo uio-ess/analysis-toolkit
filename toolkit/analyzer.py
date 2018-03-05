@@ -22,9 +22,10 @@ class analyzer:
   
   camPhotonsPerCount = 5.7817 # TODO: read this from the data when it's ready
 
-  def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None):
+  def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True):
     self.files = files
     self.drawPlots = drawPlots
+    self.fitSpot = fitSpot
     self.db = dataset.connect('sqlite:///'+database)
     self.t = None  # the database table we'll be using here
     self.freezeObj = freezeObj
@@ -61,7 +62,7 @@ class analyzer:
       self.freezeObj.close()
       
   def processOneFile(self, f):
-    f = h5py.File(fullPath, 'r')
+    f = h5py.File(f.name, 'r')
   
     root = f.get('/')
     print('/')
@@ -119,31 +120,33 @@ class analyzer:
     # compute the charge seen by the sample during data collection
     
     # integration range for camera
-    intRange = (0, self.sd['t_camExposure']) # seconds
+    intRange = (0, self.t_camExposure) # seconds
     lMask = self.currentX >= intRange[0]
     uMask = self.currentX <= intRange[1]
     
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    self.sd['t_camCharge'] = np.trapz(y,x=x)  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    camCharge = np.trapz(y,x=x)  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    self.sd['camCharge'] = camCharge * 1e9
     
     # integration range for spectrometer
-    intRange = (0, self.sd['t_spectrumExposure']) # seconds
+    intRange = (0, self.t_spectrumExposure) # seconds
     lMask = self.currentX >= intRange[0]
     uMask = self.currentX <= intRange[1]
     
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    self.sd['t_spectroCharge'] = np.trapz(y,x=x)  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
-
+    spectroCharge = np.trapz(y,x=x)  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    self.sd['spectroCharge'] = spectroCharge * 1e9
+    
   def camAnalysis(self, camData):
     camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
     camMax = camData.max()
     camAvg = camData.mean()
     print("Camera Maximum:",camMax,"[photons]")
-    self.sd['camMax'] = camMax
+    self.sd['camMax'] = float(camMax)
     
     if self.drawPlots:
       # for the image
@@ -325,14 +328,13 @@ class analyzer:
   def currentAnalysis(self, x, y):
     y = abs(y)
     totalDuration = x[-1] - x[0]
-    currentAverage = np.average(y)
-    self.sd['avgBeamCurrent'] = currentAverage
+    currentAverage = y.mean()
+    self.sd['avgBeamCurrent'] = currentAverage*1e9 # in nanoamps
+    print("Current Average:",currentAverage*1e9,"[nA]")
     
     # store these away for postAnalysis()
     self.currentX = x
     self.currentY = y
-    
-    print("Current Average:",currentAverage*1e9,"[nA]")
     
     if self.drawPlots:
       plt.figure()
@@ -422,9 +424,11 @@ class analyzer:
     for key, val in obj.attrs.items():
         print('\t{:}--> {:}'.format(key,val))
         if val == 'Manta camera':
-          self.sd['t_camExposure'] = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          #self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
-          self.sd['t_spectrumExposure'] = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          self.t_spectrumExposure = self.sd['t_spectrumExposure'] = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          #self.sd['t_spectrumExposure'] = self.t_spectrumExposure
         elif val == 'LairdTech temperature regulator':
           self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV']
 
@@ -449,29 +453,3 @@ class analyzer:
         y = parent.get('y_data')[:]
         
         self.currentAnalysis(x,y)
-        
-       
-          
-          
-        
-        
-
-            
-            
-            
-            
-            #print(obj)
-        #if(len(obj[:].shape) == 2):
-            #plt.matshow(obj[:])
-            #plt.colorbar()
-            #plt.show()
-        #if(len(obj[:].shape) == 1):
-            #dim = obj.len()
-            #if(obj.attrs.get('pvname') and
-               #obj.attrs['pvname'].find('CCS1') == 0):
-                #dim = 3600
-            #plt.plot(obj[0:dim])
-            #plt.show()
-    
-    
-    
