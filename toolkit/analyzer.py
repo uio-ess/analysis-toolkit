@@ -115,7 +115,10 @@ class analyzer:
     f.visititems(self.visitor)
     
     # now we'll do some analysis that had to wait until we'd read the entire file
-    self.postAnalysis()
+    try:
+      self.postAnalysis()
+    except:
+      print("Failed during postAnalysis()")
     
     # store what we've learned in our database
     self.t.upsert(self.sd, ['int_hash'], ensure=True)
@@ -452,21 +455,29 @@ class analyzer:
     if type(obj) is h5py._hl.dataset.Dataset:
       print(obj.name+' <-- dataset')
       if 'Manta camera' in obj.parent.attrs.values():  # camera plot
-        camData = obj[:]
-        self.camAnalysis(camData)
+        try:
+          camData = obj[:]
+          self.camAnalysis(camData)
+        except:
+          print("Failed during camera image analysis.")
 
       elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_data' in obj.name):  # spectrometer plot
-        parent = obj.parent
-        xPlot = parent.get('x_values')[:]
-        xlen = len(xPlot)
-        yPlot = parent.get('y_data')[0:xlen]  # TODO doubcle check this length
-        y_scale = parent.get('y_scale')[0:xlen]
+        try:
+          parent = obj.parent
+          xPlot = parent.get('x_values')[:]
+          xlen = len(xPlot)
+          yPlot = parent.get('y_data')[0:xlen]  # TODO doubcle check this length
+          y_scale = parent.get('y_scale')[0:xlen]
         
-        self.spectAnalysis(xPlot, yPlot, y_scale)
+          self.spectAnalysis(xPlot, yPlot, y_scale)
+        except:
+          print("Failed during spectrum analysis.")
           
       elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('wavefront' in obj.name) and ('y_data' in obj.name):
-        parent = obj.parent
-        x = parent.get('x_data')[:]
-        y = parent.get('y_data')[:]
-        
-        self.currentAnalysis(x,y)
+        try:
+          parent = obj.parent
+          x = parent.get('x_data')[:]
+          y = parent.get('y_data')[:]
+          self.currentAnalysis(x,y)
+        except:
+          print("Failed during current analysis.")
