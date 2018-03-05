@@ -87,7 +87,7 @@ class analyzer:
       self.sd[attr] = stageSample
     
     attr = 'trigger_id'
-    self.sd[attr] = root.attrs.get(attr)
+    self.sd[attr] = int(root.attrs.get(attr)) # hopefully nothing gets mangled by the int cast here...
     
     self.titleString = str(self.sd['trigger_id']) + '|' +\
       self.sd['sample_name'] + '|' + self.sd['session']    
