@@ -100,7 +100,7 @@ class analyzer:
 
     # other things i'm interested in here
     #iWants = ('sample_name','session', ...)
-    iWants = ('experiment_description', 'sub_experiment')
+    iWants = ('experiment_description', 'sub_experiment', 'timestamp')
     for thingIWant in iWants:
       attribute = root.attrs.get(thingIWant)
       if type(attribute) is np.int64:
@@ -403,8 +403,8 @@ class analyzer:
     
     if self.drawPlots:
       plt.figure()
-      plt.plot(xPlot,yPlot, marker='.',)
-      plt.plot(x, result.best_fit, 'r-')
+      plt.plot(xPlot,yPlot, marker='.',label='Data')
+      plt.plot(x, result.best_fit, 'r-',label='Ruby Emission Fit')
       
       # for guess analysis:
       #plt.plot(x, y, 'bo')
@@ -416,6 +416,7 @@ class analyzer:
       plt.ylabel('Spectrometer Counts')
       plt.title('Emission Spectrum|' + self.titleString)
       plt.tight_layout()
+      plt.legend()
       plt.grid()    
     
     R2 = 1 - result.residual.var() / np.var(y)
