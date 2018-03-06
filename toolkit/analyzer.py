@@ -154,6 +154,11 @@ class analyzer:
     
   def camAnalysis(self, camData):
     camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
+    cornerDim = 50
+    corner = camData[:cornerDim,-cornerDim:] # take corner of the image
+    background = corner.mean()
+    camData = camData - background
+
     camMax = camData.max()
     camAvg = camData.mean()
     print("Camera Maximum:",camMax,"[photons]")
