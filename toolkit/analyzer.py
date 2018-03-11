@@ -4,6 +4,7 @@ import datafreeze
 import os
 import io
 import re
+import cv2
 import time
 import hashlib
 import matplotlib.pylab as plt
@@ -13,6 +14,9 @@ from scipy import signal
 from scipy import constants
 from scipy import optimize as opt
 from scipy import interpolate
+
+class Object(object):
+  pass
 
 class analyzer:
   """
@@ -152,20 +156,106 @@ class analyzer:
     spectroCharge = np.trapz(y,x=x)  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['spectroCharge'] = spectroCharge * 1e9
     
-  def camAnalysis(self, camData):
-    camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
-    camMax = camData.max()
-    camAvg = camData.mean()
-    print("Camera Maximum:",camMax,"[photons]")
-    self.sd['camMax'] = float(camMax)
+  def crop_minAreaRect(img, rect):
+  
+    # rotate img
+    angle = rect[2]
+    rows,cols = img.shape[0], img.shape[1]
+    M = cv2.getRotationMatrix2D((cols/2,rows/2),angle,1)
+    img_rot = cv2.warpAffine(img,M,(cols,rows))
+  
+    # rotate bounding box
+    rect0 = (rect[0], rect[1], 0.0)
+    box = cv2.boxPoints(rect)
+    pts = np.int0(cv2.transform(np.array([box]), M))[0]    
+    pts[pts < 0] = 0
+  
+    # crop
+    img_crop = img_rot[pts[1][1]:pts[0][1], 
+                         pts[1][0]:pts[2][0]]
+  
+    return img_crop  
     
+  def camAnalysis(self, camData):
     if self.drawPlots:
       # for the image
       fig = plt.figure()
       ax = plt.matshow(camData,fignum=fig.number,origin='lower')
       ax.axes.xaxis.tick_bottom()
-      plt.title('Camera|' + self.titleString)
-      plt.colorbar(label='Photons')
+      plt.title('RAW Camera|' + self.titleString)
+      plt.colorbar(label='Counts')
+    cdo = camData.copy()
+    cdFilt = cv2.medianBlur(src=cdo, ksize=7)
+    #camData = cv2.medianBlur(src=camData, ksize=3)
+    wut = cv2.convertScaleAbs(cdFilt) # likely really bad? throwing away information here 12 --> 8 bit conversion
+    #camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) *\
+    #  self.camPhotonsPerCount
+    camMax = camData.max()
+    camAvg = camData.mean()
+    print("Camera Maximum:",camMax,"[photons]")
+    self.sd['camMax'] = float(camMax)
+    
+    #th3 = cv2.adaptiveThreshold(camData,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,9,0) 
+    
+
+    #file = '/tmp/img.png'
+    #cv2.imwrite(file, camData)
+    #img = cv2.imread(file,0)
+    #img = camData
+    #smallestDim = max(img.shape)
+    #if smallestDim % 2 == 0:
+    #  thWindow = smallestDim - 1
+    #else:
+    #  thWindow = smallestDim    
+    #imge = cv2.imencode('.png', camData)
+    #img = cv2.imdecode(imge, 0)
+    #th3 = cv2.adaptiveThreshold(img,4095,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,thWindow,0)
+    #plt.imshow(th3)
+    #plt.show()
+    
+    #ret,thresh = cv2.threshold(img,200,255,cv2.THRESH_BINARY)
+    ret,thresh = cv2.threshold(wut,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    #thresh = thresh.astype(np.uint8)
+    #contours = cv2.findContours(thresh, 1, 2)
+    nz = cv2.findNonZero(thresh)
+    mar = cv2.minAreaRect(nz)
+    boxScaleFactor = 0.70
+    smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]),mar[2])
+    box = cv2.boxPoints(smaller)
+    box = np.int0(box)
+    #number = 255
+    #number = 255
+    whereIsROI = cv2.drawContours(cdo,[box],0,(4095,4095,4095), 3)
+    if self.drawPlots:
+      # for the ROI image
+      fig = plt.figure()
+      ax = plt.matshow(whereIsROI,fignum=fig.number,origin='lower')
+      ax.axes.xaxis.tick_bottom()
+      plt.title('Camera ROI|' + self.titleString)
+      #plt.colorbar(label='Counts')    
+    #plt.figure()
+    #plt.imshow(contours)
+    #plt.show()
+    
+    ROI = analyzer.crop_minAreaRect(camData,smaller)
+    #plt.figure()
+    #plt.imshow(ROI)
+    
+    #cnt = contours[0]
+    #M = cv2.moments(cnt)
+    
+    #plt.imshow(thresh)
+    #plt.show()    
+    
+    #epsilon = 0.1*cv2.arcLength(cnt,True)
+    #approx = cv2.approxPolyDP(cnt,epsilon,True)    
+    
+    #rect = cv2.minAreaRect(cnt)
+    #box = cv2.boxPoints(rect)
+    #box = np.int0(box)
+    #cv2.drawContours(img,[box],0,(0,0,255),2)
+      
+    camData = ROI
     
     if self.fitSpot:
       xRes = camData.shape[1]
@@ -174,9 +264,36 @@ class analyzer:
       
       # this forms our initial guesses for the fit
       params = analyzer.moments(camData)
+      m = cv2.moments(camData)
+      
+      data_sum = m['m00']
+      
+      x_bar = m['m10']/data_sum # maybe swapped
+      y_bar = m['m01']/data_sum # maybe swapped
+      
+      #u11 = (m['m11'] - x_bar * m['m01']) / data_sum
+      #u20 = (m['m20'] - x_bar * m['m10']) / data_sum
+      #u02 = (m['m02'] - y_bar * m['m01']) / data_sum
+      #cov = np.array([[u20, u11], [u11, u02]])
+      
+      angle = 0.5 * np.arctan(2 * m['mu11'] / (m['mu20'] - m['mu02'])) # maybe take abs of this
+      
+      angle = abs(angle - constants.pi/4) - constants.pi/4# lol, wtf
+      
+      sigmaY = np.sqrt(m['mu20']/m['m00']) # maybe swapped
+      sigmaX = np.sqrt(m['mu02']/m['m00']) # maybe swapped
+      
+      avgWinLen = 11 # must be odd
+      xc = round(x_bar)
+      yc = round(y_bar)
+      amplitudeWin = camData[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
+      
+      amplitude = amplitudeWin.mean()
+      
       
       # [amplitude, peakX, peakY, sigmaX, sigmaY, theta(rotation angle), avg (background offset level)]
-      initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
+      #initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
+      initial_guess = (amplitude, x_bar, y_bar, sigmaX, sigmaY, angle, 0) # offset level should be center of fist bimodal peak in image hist, not 0
       
       # Create x and y grid
       xv = np.linspace(0, xRes-1, xRes)
@@ -201,7 +318,7 @@ class analyzer:
       theta = popt[5]
       peakPos = (popt[1],popt[2])
       peakX = peakPos[0]
-      peakX = peakPos[1]
+      peakY = peakPos[1]
       sigma = (popt[3],popt[4])
       sigmaX = sigma[0]
       sigmaY = sigma[1]
