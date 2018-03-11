@@ -219,7 +219,15 @@ class analyzer:
     #contours = cv2.findContours(thresh, 1, 2)
     nz = cv2.findNonZero(thresh)
     mar = cv2.minAreaRect(nz)
-    boxScaleFactor = 0.70
+    approxSubstrateArea = mar[1][0] * mar[1][1]
+    imgArea = camData.shape[0] * camData.shape[0]
+    substrateAreaFactor = 0.8
+    if imgArea * substrateAreaFactor < imgArea: # is the ROI going to be properly on the substrate?
+      cantFindSubstrate = True
+    else:
+      cantFindSubstrate = False
+      print("WARNING: Can't find the substrate")
+    boxScaleFactor = 0.70 # reduce ROI by this factor to prevent substrate edge effects
     smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]),mar[2])
     box = cv2.boxPoints(smaller)
     box = np.int0(box)
@@ -237,7 +245,10 @@ class analyzer:
     #plt.imshow(contours)
     #plt.show()
     
-    ROI = analyzer.crop_minAreaRect(camData,smaller)
+    if not cantFindSubstrate:
+      ROI = analyzer.crop_minAreaRect(camData,smaller)
+      camData = ROI    
+
     #plt.figure()
     #plt.imshow(ROI)
     
@@ -255,9 +266,9 @@ class analyzer:
     #box = np.int0(box)
     #cv2.drawContours(img,[box],0,(0,0,255),2)
       
-    camData = ROI
+    # camData = ROI
     
-    if self.fitSpot:
+    if self.fitSpot and (not cantFindSubstrate):
       xRes = camData.shape[1]
       yRes = camData.shape[0]
       camData1D = camData.reshape([camData.size])
