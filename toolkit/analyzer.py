@@ -105,7 +105,7 @@ class analyzer:
 
     # other things i'm interested in here
     #iWants = ('sample_name','session', ...)
-    iWants = ('experiment_description', 'sub_experiment')
+    iWants = ('experiment_description', 'sub_experiment', 'timestamp')
     for thingIWant in iWants:
       attribute = root.attrs.get(thingIWant)
       if type(attribute) is np.int64:
@@ -191,6 +191,13 @@ class analyzer:
     wut = cv2.convertScaleAbs(cdFilt) # likely really bad? throwing away information here 12 --> 8 bit conversion
     #camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) *\
     #  self.camPhotonsPerCount
+    
+    #camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
+    #cornerDim = 50
+    #corner = camData[:cornerDim,-cornerDim:] # take corner of the image
+    #background = corner.mean()
+    #camData = camData - background
+
     camMax = camData.max()
     camAvg = camData.mean()
     print("Camera Maximum:",camMax,"[photons]")
@@ -553,8 +560,8 @@ class analyzer:
     
     if self.drawPlots:
       plt.figure()
-      plt.plot(xPlot,yPlot, marker='.',)
-      plt.plot(x, result.best_fit, 'r-')
+      plt.plot(xPlot,yPlot, marker='.',label='Data')
+      plt.plot(x, result.best_fit, 'r-',label='Ruby Emission Fit')
       
       # for guess analysis:
       #plt.plot(x, y, 'bo')
@@ -566,6 +573,7 @@ class analyzer:
       plt.ylabel('Spectrometer Counts')
       plt.title('Emission Spectrum|' + self.titleString)
       plt.tight_layout()
+      plt.legend()
       plt.grid()    
     
     R2 = 1 - result.residual.var() / np.var(y)
