@@ -185,199 +185,128 @@ class analyzer:
       ax.axes.xaxis.tick_bottom()
       plt.title('RAW Camera|' + self.titleString)
       plt.colorbar(label='Counts')
-    cdo = camData.copy()
-    cdFilt = cv2.medianBlur(src=cdo, ksize=7)
-    #camData = cv2.medianBlur(src=camData, ksize=3)
-    wut = cv2.convertScaleAbs(cdFilt) # likely really bad? throwing away information here 12 --> 8 bit conversion
-    #camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) *\
-    #  self.camPhotonsPerCount
+    cdo = camData.copy() # copy camera data so we don't mess up the origional
     
-    #camData = signal.medfilt2d(camData.astype(np.float32),kernel_size=3) * self.camPhotonsPerCount
+    # corner method of finding background
     #cornerDim = 50
     #corner = camData[:cornerDim,-cornerDim:] # take corner of the image
     #background = corner.mean()
-    #camData = camData - background
+    
+    # histogram method of finding background
+    cameraBits = 12
+    cameraValues = 2**12
+    
+    # take a histogram of counts in image and call the bin with the most counts the background
+    bins = np.bincount(camData.ravel(),minlength=cameraValues) # maybe gaussian blur the image first?
+    background = bins.argmax()
 
-    camMax = camData.max()
-    camAvg = camData.mean()
-    print("Camera Maximum:",camMax,"[photons]")
-    self.sd['camMax'] = float(camMax)
+    #camMax = camData.max()
+    #camAvg = camData.mean()
+    #print("Camera Maximum:",camMax * self.camPhotonsPerCount,"[photons]")
+    #self.sd['camMax'] = float(camMax * self.camPhotonsPerCount)
     
-    #th3 = cv2.adaptiveThreshold(camData,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,9,0) 
-    
-
-    #file = '/tmp/img.png'
-    #cv2.imwrite(file, camData)
-    #img = cv2.imread(file,0)
-    #img = camData
-    #smallestDim = max(img.shape)
-    #if smallestDim % 2 == 0:
-    #  thWindow = smallestDim - 1
-    #else:
-    #  thWindow = smallestDim    
-    #imge = cv2.imencode('.png', camData)
-    #img = cv2.imdecode(imge, 0)
-    #th3 = cv2.adaptiveThreshold(img,4095,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,thWindow,0)
-    #plt.imshow(th3)
-    #plt.show()
-    
-    #ret,thresh = cv2.threshold(img,200,255,cv2.THRESH_BINARY)
-    ret,thresh = cv2.threshold(wut,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-    #thresh = thresh.astype(np.uint8)
-    #contours = cv2.findContours(thresh, 1, 2)
-    nz = cv2.findNonZero(thresh)
-    mar = cv2.minAreaRect(nz)
-    approxSubstrateArea = mar[1][0] * mar[1][1]
-    imgArea = camData.shape[0] * camData.shape[0]
+    # global auto-threshold the image (for finding the substrate)
+    cdo = cv2.convertScaleAbs(cdo) # truncate to 8 bit because cv2 is crap for 16bit numbers :-P
+    blur = cv2.medianBlur(src=cdo, ksize=15) # big filter here    
+    ret,thresh = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
+    nz = cv2.findNonZero(thresh) # thresh --> bool
+    mar = cv2.minAreaRect(nz) # find our substrate
+    approxSubstrateArea = mar[1][0] * mar[1][1]  # compute substrate area
+    imgArea = camData.shape[0] * camData.shape[0] # compute whole image area
     substrateAreaFactor = 0.8
-    if imgArea * substrateAreaFactor < approxSubstrateArea: # is the ROI going to be properly on the substrate?
+    if imgArea * substrateAreaFactor < approxSubstrateArea: # test if the ROI is huge
       cantFindSubstrate = True
-      print("WARNING: Can't find the substrate")
+      print("WARNING: Can't find the substrate")  # and quit if it's too big
     else:
       cantFindSubstrate = False
       
     boxScaleFactor = 0.70 # reduce ROI by this factor to prevent substrate edge effects
-    smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]),mar[2])
-    box = cv2.boxPoints(smaller)
-    box = np.int0(box)
-    #number = 255
-    #number = 255
-    whereIsROI = cv2.drawContours(cdo,[box],0,(4095,4095,4095), 3)
+    smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]), mar[2]) # calculate new ROI
+    box = cv2.boxPoints(smaller).astype(np.int0) # find new ROI corners
+    
+    # show user the new ROI
+    whereIsROI = cv2.drawContours(blur, [box], 0, 127, 3)
     if self.drawPlots:
       # for the ROI image
       fig = plt.figure()
-      ax = plt.matshow(whereIsROI,fignum=fig.number,origin='lower')
+      ax = plt.imshow(np.flipud(whereIsROI), cmap='gray', vmin = 0, vmax = 255)
       ax.axes.xaxis.tick_bottom()
       plt.title('Camera ROI|' + self.titleString)
-      #plt.colorbar(label='Counts')    
-    #plt.figure()
-    #plt.imshow(contours)
-    #plt.show()
-    
+
+    # now crop and rotate the camera data
     if not cantFindSubstrate:
       ROI = analyzer.crop_minAreaRect(camData,smaller)
       camData = ROI    
-
-    #plt.figure()
-    #plt.imshow(ROI)
-    
-    #cnt = contours[0]
-    #M = cv2.moments(cnt)
-    
-    #plt.imshow(thresh)
-    #plt.show()    
-    
-    #epsilon = 0.1*cv2.arcLength(cnt,True)
-    #approx = cv2.approxPolyDP(cnt,epsilon,True)    
-    
-    #rect = cv2.minAreaRect(cnt)
-    #box = cv2.boxPoints(rect)
-    #box = np.int0(box)
-    #cv2.drawContours(img,[box],0,(0,0,255),2)
-      
-    # camData = ROI
     
     if self.fitSpot and (not cantFindSubstrate):
-      xRes = camData.shape[1]
-      yRes = camData.shape[0]
-      camData1D = camData.reshape([camData.size])
+      xRes = camData.shape[0]
+      yRes = camData.shape[1]
       
-      # this forms our initial guesses for the fit
-      #params = analyzer.moments(camData)
+      # let's make some initial guesses for the 2d gaussian fit
+      twoDG_model = Model(analyzer.twoD_Gaussian, independent_vars=['x','y'])
+      guesses = twoDG_model.make_params()      
+      # the raw image moment calculation forms the basis of our guesses
       m = cv2.moments(camData)
       
       data_sum = m['m00']
       
-      x_bar = m['m10']/data_sum # maybe swapped
-      y_bar = m['m01']/data_sum # maybe swapped
+      # "center of mass"
+      guesses['xo'].value = m['m10']/data_sum
+      guesses['yo'].value = m['m01']/data_sum
       
-      #u11 = (m['m11'] - x_bar * m['m01']) / data_sum
-      #u20 = (m['m20'] - x_bar * m['m10']) / data_sum
-      #u02 = (m['m02'] - y_bar * m['m01']) / data_sum
-      #cov = np.array([[u20, u11], [u11, u02]])
+      angle = 0.5 * np.arctan(2 * m['mu11'] / (m['mu20'] - m['mu02']))
+      guesses['theta'].value = abs(angle - constants.pi/4) - constants.pi/4# lol, wtf, check this agains more examples
       
-      angle = 0.5 * np.arctan(2 * m['mu11'] / (m['mu20'] - m['mu02'])) # maybe take abs of this
+      guesses['sigma_y'].value = np.sqrt(m['mu20']/m['m00']) 
+      guesses['sigma_x'].value = np.sqrt(m['mu02']/m['m00'])
       
-      angle = abs(angle - constants.pi/4) - constants.pi/4# lol, wtf
-      
-      sigmaY = np.sqrt(m['mu20']/m['m00']) # maybe swapped
-      sigmaX = np.sqrt(m['mu02']/m['m00']) # maybe swapped
-      
+      # take an average of the points around the peak to find amplitude
       avgWinLen = 11 # must be odd
       xc = round(x_bar)
       yc = round(y_bar)
       amplitudeWin = camData[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
+      guesses['amplitude'].value = amplitudeWin.mean() - background
       
-      amplitude = amplitudeWin.mean()
-      
-      
-      # [amplitude, peakX, peakY, sigmaX, sigmaY, theta(rotation angle), avg (background offset level)]
-      #initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
-      initial_guess = (amplitude, x_bar, y_bar, sigmaX, sigmaY, angle, 0) # offset level should be center of fist bimodal peak in image hist, not 0
-      ig = {}
-      ig['amplitude'] = amplitude
-      ig['xo'] = x_bar
-      ig['yo'] = y_bar
-      ig['sigma_x'] = sigmaX
-      ig['sigma_y'] = sigmaY
-      ig['theta'] = angle
-      ig['offset'] = 0
-      
-      twoDG_model = Model(analyzer.twoD_Gaussian, independent_vars=['x','y'])
-      
-      pars = twoDG_model.make_params(ig)
+      guesses['offset'].value = background
       
       # Create x and y grid
       xv = np.linspace(0, xRes-1, xRes)
       yv = np.linspace(0, yRes-1, yRes)
-      #x, y = np.meshgrid(xv, yv)
-      
-      fitResult = twoDG_model.fit(camData,x=xv,y=yv,params=pars,nan_policy='omit')
-      
-
-      
-      
+      x, y = np.meshgrid(xv, yv,indexing='ij')
       
       try:
-        fitResult = opt.curve_fit(analyzer.twoD_Gaussian, (x, y), camData1D, p0=initial_guess, maxfev=300, full_output=True)
-        popt = fitResult[0]
-        pconv = fitResult[1]
-        infodict = fitResult[2]
-        mesg = fitResult[3]
-        #print(infodict)
-        #print(mesg)
+        fitResult = twoDG_model.fit(camData, x=x, y=y, params=guesses, nan_policy='omit')
         fitFail = False
       except:
         fitFail = True
-        popt = initial_guess
+        fitResult.params = guesses
         
       # the fit parameters in photons
-      amplitude = popt[0]
-      theta = popt[5]
-      peakPos = (popt[1],popt[2])
+      amplitude = fitResult.params['amplitude'].value
+      theta = fitResult.params['theta'].value
+      peakPos = (fitResult.params['xo'].value, fitResult.params['yo'].value)
       peakX = peakPos[0]
       peakY = peakPos[1]
-      sigma = (popt[3],popt[4])
+      sigma = (fitResult.params['sigma_x'].value,fitResult.params['sigma_y'].value)
       sigmaX = sigma[0]
       sigmaY = sigma[1]
-      baseline = popt[6]
-      peak = amplitude+baseline
+      baseline = fitResult.params['offset'].value
+      peak = amplitude + baseline
       
-      volume = abs(2 * constants.pi * amplitude * sigmaX * sigmaY)
+      totalVolume = abs(2 * constants.pi * amplitude * sigmaX * sigmaY)
       
       if fitFail:
         print('Camera spot 2D gaussian fit failure')
       else:
-        self.sd['camSpotAmplitude'] = amplitude
-        self.sd['camSpotVolume'] = volume
+        self.sd['camSpotAmplitude'] = amplitude * self.camPhotonsPerCount
+        self.sd['camSpotVolume'] = totalVolume * self.camPhotonsPerCount
+        #TODO: integration over the cup should be put here
   
-      print("Camera Spot Height: {:.0f} [photons]".format(amplitude))
-      print("Camera Spot Volume: {:.0f} [photon*pixel^2]".format(volume))    
+      print("Camera Spot Height: {:.0f} [photons]".format(amplitude * self.camPhotonsPerCount))
+      print("Camera Spot Volume: {:.0f} [photon*pixel^2]".format(totalVolume * self.camPhotonsPerCount))    
     
       if self.drawPlots:
-        # for the spot fit analysis
-        fitSurface1D = analyzer.twoD_Gaussian((x, y), *popt)
-        fitSurface2D = fitSurface1D.reshape([yRes,xRes])      
+        fitSurface2D = twoDG_model.eval(x=x,y=y,params=fitResult.params)   
         
         # let's make some evaluation lines
         nPoints = 100
@@ -390,13 +319,13 @@ class analyzer:
         BX = rB*np.cos(theta+np.pi/4) + peakPos[0] # x values for line B
         BY = rB*np.sin(theta+np.pi/4) + peakPos[1] # y values for line B    
       
-        f = interpolate.interp2d(xv, yv, camData) # linear interpolation for data surface
+        f = interpolate.RectBivariateSpline(xv,yv,camData) # linear interpolation for data surface
       
-        lineAData = np.array([float(f(px,py)) for px,py in zip(AX,AY)])
-        lineAFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(AX,AY)])
+        lineAData = f.ev(AX,AY)
+        lineAFit = twoDG_model.eval(x=AX,y=AY,params=fitResult.params)
       
-        lineBData = np.array([float(f(px,py)) for px,py in zip(BX,BY)])
-        lineBFit = np.array([float(analyzer.twoD_Gaussian((px, py), *popt)) for px,py in zip(BX,BY)])
+        lineBData = f.ev(BX,BY)
+        lineBFit = twoDG_model.eval(x=BX,y=BY,params=fitResult.params)
       
         residuals = lineBData - lineBFit
         ss_res = np.sum(residuals**2)
@@ -485,11 +414,11 @@ class analyzer:
     #y = xy[1]
     #xo = float(xo)
     #yo = float(yo)
-    xmg,ymg = np.meshgrid(x, y)
+    #xmg,ymg = np.meshgrid(x, y)
     a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
     b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
     c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
-    g = offset + amplitude*np.exp( - (a*((xmg-xo)**2) + 2*b*(xmg-xo)*(ymg-yo) + c*((ymg-yo)**2)))
+    g = offset + amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) + c*((y-yo)**2)))
     #return g.ravel()
     return g
       
@@ -513,7 +442,7 @@ class analyzer:
       plt.xlabel('Time Since Trigger Event [ms]')
       plt.ylabel('Beam Current [nA]')
       plt.grid()
-      plt.legend()           
+      plt.legend()
       
   def spectAnalysis(self, xPlot, yPlot, y_scale):
     #y = y/y_scale # TODO: check scaling
