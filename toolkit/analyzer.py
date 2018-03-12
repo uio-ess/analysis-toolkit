@@ -10,6 +10,7 @@ import hashlib
 import matplotlib.pylab as plt
 import numpy as np
 from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
+from lmfit import Model
 from scipy import signal
 from scipy import constants
 from scipy import optimize as opt
@@ -222,11 +223,12 @@ class analyzer:
     approxSubstrateArea = mar[1][0] * mar[1][1]
     imgArea = camData.shape[0] * camData.shape[0]
     substrateAreaFactor = 0.8
-    if imgArea * substrateAreaFactor < imgArea: # is the ROI going to be properly on the substrate?
+    if imgArea * substrateAreaFactor < approxSubstrateArea: # is the ROI going to be properly on the substrate?
       cantFindSubstrate = True
+      print("WARNING: Can't find the substrate")
     else:
       cantFindSubstrate = False
-      print("WARNING: Can't find the substrate")
+      
     boxScaleFactor = 0.70 # reduce ROI by this factor to prevent substrate edge effects
     smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]),mar[2])
     box = cv2.boxPoints(smaller)
@@ -274,7 +276,7 @@ class analyzer:
       camData1D = camData.reshape([camData.size])
       
       # this forms our initial guesses for the fit
-      params = analyzer.moments(camData)
+      #params = analyzer.moments(camData)
       m = cv2.moments(camData)
       
       data_sum = m['m00']
@@ -305,11 +307,29 @@ class analyzer:
       # [amplitude, peakX, peakY, sigmaX, sigmaY, theta(rotation angle), avg (background offset level)]
       #initial_guess = (camMax-camAvg, params[2], params[1], params[4], params[3], 0, camAvg)
       initial_guess = (amplitude, x_bar, y_bar, sigmaX, sigmaY, angle, 0) # offset level should be center of fist bimodal peak in image hist, not 0
+      ig = {}
+      ig['amplitude'] = amplitude
+      ig['xo'] = x_bar
+      ig['yo'] = y_bar
+      ig['sigma_x'] = sigmaX
+      ig['sigma_y'] = sigmaY
+      ig['theta'] = angle
+      ig['offset'] = 0
+      
+      twoDG_model = Model(analyzer.twoD_Gaussian, independent_vars=['x','y'])
+      
+      pars = twoDG_model.make_params(ig)
       
       # Create x and y grid
       xv = np.linspace(0, xRes-1, xRes)
       yv = np.linspace(0, yRes-1, yRes)
-      x, y = np.meshgrid(xv, yv)
+      #x, y = np.meshgrid(xv, yv)
+      
+      fitResult = twoDG_model.fit(camData,x=xv,y=yv,params=pars,nan_policy='omit')
+      
+
+      
+      
       
       try:
         fitResult = opt.curve_fit(analyzer.twoD_Gaussian, (x, y), camData1D, p0=initial_guess, maxfev=300, full_output=True)
@@ -444,7 +464,7 @@ class analyzer:
       height = data.max()
       return height, x, y, width_x, width_y
     
-  def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
+  def twoD_Gaussian(x,y, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
     """
     returns a 1d vector representation of the height at position xy of a 2d gaussian surface where
     amplitude = gaussian peak height
@@ -454,15 +474,17 @@ class analyzer:
     and
     offset is the surface's height offset from zero
     """
-    x = xy[0]
-    y = xy[1]
-    xo = float(xo)
-    yo = float(yo)
+    #x = xy[0]
+    #y = xy[1]
+    #xo = float(xo)
+    #yo = float(yo)
+    xmg,ymg = np.meshgrid(x, y)
     a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
     b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
     c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
-    g = offset + amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) + c*((y-yo)**2)))
-    return g.ravel()  
+    g = offset + amplitude*np.exp( - (a*((xmg-xo)**2) + 2*b*(xmg-xo)*(ymg-yo) + c*((ymg-yo)**2)))
+    #return g.ravel()
+    return g
       
   def currentAnalysis(self, x, y):
     y = abs(y)
