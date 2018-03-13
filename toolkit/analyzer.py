@@ -26,6 +26,15 @@ class analyzer:
   """
   
   camPhotonsPerCount = 5.7817 # TODO: read this from the data when it's ready
+  T_len = 0.95 # lens transmission
+  Fn = 2.8 # f-number
+  F = 50 # focal length
+  L = 1185 # distance to target
+  D = F / Fn
+  theta = D / 2 / L # TODO check order of operations here
+  Omega = constants.pi * theta**2
+  #CC =  Omega / T_len
+  samplePhotonsPerCamPhoton = T_len/Omega
 
   def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True):
     self.files = files
@@ -149,9 +158,11 @@ class analyzer:
     if 'sampleCupFraction' in self.sd:
       usefulProtons = round(camCharge/constants.e * self.sd['sampleCupFraction'])
       if 'sampleBlurVol' in self.sd:
-        self.sd['photonsPerProtonBlur'] = self.sd['sampleBlurVol']/usefulProtons
+        self.sd['photonsPerProtonBlur'] = self.sd['sampleBlurVol']/usefulProtons * self.samplePhotonsPerCamPhoton
+        print("Emitted blur photons per proton: {:.0f}".format(self.sd['photonsPerProtonBlur']))
       if 'sampleGausVol' in self.sd:
-        self.sd['photonsPerProtonGaus'] = self.sd['sampleGausVol']/usefulProtons
+        self.sd['photonsPerProtonGaus'] = self.sd['sampleGausVol']/usefulProtons * self.samplePhotonsPerCamPhoton
+        print("Emitted gaus photons per proton: {:.0f}".format(self.sd['photonsPerProtonGaus']))
     
     # integration range for spectrometer
     intRange = (0, self.t_spectrumExposure) # seconds
@@ -214,9 +225,9 @@ class analyzer:
     #self.sd['camMax'] = float(camMax * self.camPhotonsPerCount)
     
     # global auto-threshold the image (for finding the substrate)
-    #cdo = cv2.convertScaleAbs(cdo) # truncate to 8 bit because cv2 is crap for 16bit numbers :-P
+    #cdo = cv2.convertScaleAbs(cdo) 
     cdo = cdo/nCameraValues*(2**8-1)
-    cdo = cdo.astype(np.uint8)
+    cdo = cdo.astype(np.uint8) # DANGER: information loss here just because cv2 is crap for 16bit numbers :-P
     blur = cv2.medianBlur(src=cdo, ksize=15) # big filter here    
     ret,thresh = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
     nz = cv2.findNonZero(thresh) # thresh --> bool
@@ -269,9 +280,8 @@ class analyzer:
         sxv = np.linspace(0, sampleROIXRes-1, sampleROIXRes)
         syv = np.linspace(0, sampleROIYRes-1, sampleROIYRes)
         #sxm, sym = np.meshgrid(sxv, syv,indexing='ij')
-        sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,sampleROIBlur * self.camPhotonsPerCount)
-        sampleBlurVol = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
-        self.sd['sampleBlurVol'] = sampleBlurVol
+        sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,(sampleROIBlur - background) * self.camPhotonsPerCount)
+        self.sd['sampleBlurVol'] = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
         self.sd['sampleBlurPeak'] = sampleROIBlur.max() * self.camPhotonsPerCount
         print("Sample Blur Volume: {:.0f} [photons]".format(sampleBlurVol))
         print("Sample Blur Peak: {:.0f} [photons]".format(self.sd['sampleBlurPeak']))
@@ -600,10 +610,10 @@ class analyzer:
         print('\t{:}--> {:}'.format(key,val))
         if val == 'Manta camera':
           self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
-          #self.sd['t_camExposure'] = self.t_camExposure
+          self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
           self.t_spectrumExposure = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
-          #self.sd['t_spectrumExposure'] = self.t_spectrumExposure
+          self.sd['t_spectrumExposure'] = self.t_spectrumExposure
         elif val == 'LairdTech temperature regulator':
           self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV']
 
