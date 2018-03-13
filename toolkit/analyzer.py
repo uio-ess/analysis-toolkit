@@ -304,11 +304,12 @@ class analyzer:
       yv = np.linspace(0, yRes-1, yRes)
       x, y = np.meshgrid(xv, yv,indexing='ij')
       
+      fitFail = True
       try:
-        fitResult = twoDG_model.fit(ROI, x=x, y=y, offset=background, params=guesses, nan_policy='omit')
-        fitFail = False
+        fitResult = twoDG_model.fit(ROI, x=x, y=y, offset=background, params=guesses, nan_policy='omit',fit_kws={'maxfev': 500})
+        if fitResult.success:
+          fitFail = False
       except:
-        fitFail = True
         fitResult.params = guesses
         
       # the fit parameters in photons
