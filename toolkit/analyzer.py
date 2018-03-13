@@ -202,10 +202,10 @@ class analyzer:
     
     # histogram method of finding background
     cameraBits = 12
-    cameraValues = 2**12
+    nCameraValues = 2**12
     
     # take a histogram of counts in image and call the bin with the most counts the background
-    bins = np.bincount(camData.ravel(),minlength=cameraValues) # maybe gaussian blur the image first?
+    bins = np.bincount(camData.ravel(),minlength=nCameraValues) # maybe gaussian blur the image first?
     background = bins.argmax()
 
     #camMax = camData.max()
@@ -215,7 +215,7 @@ class analyzer:
     
     # global auto-threshold the image (for finding the substrate)
     #cdo = cv2.convertScaleAbs(cdo) # truncate to 8 bit because cv2 is crap for 16bit numbers :-P
-    cdo = cdo/cameraValues*(2**8-1)
+    cdo = cdo/nCameraValues*(2**8-1)
     cdo = cdo.astype(np.uint8)
     blur = cv2.medianBlur(src=cdo, ksize=15) # big filter here    
     ret,thresh = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
@@ -254,19 +254,30 @@ class analyzer:
       ROI = np.flipud(ROI)
       sampleROI = np.flipud(ROI) - background
       sampleROIBlur = cv2.medianBlur(src=bigROI, ksize=5)
-      sampleROIXRes = sampleROIBlur.shape[0]
-      sampleROIYRes = sampleROIBlur.shape[1]
-      sxv = np.linspace(0, sampleROIXRes-1, sampleROIXRes)
-      syv = np.linspace(0, sampleROIYRes-1, sampleROIYRes)
-      #sxm, sym = np.meshgrid(sxv, syv,indexing='ij')
-      sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,sampleROIBlur * self.camPhotonsPerCount)
-      sampleBlurVol = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
-      self.sd['sampleBlurVol'] = sampleBlurVol
-      self.sd['sampleBlurPeak'] = sampleROIBlur.max() * self.camPhotonsPerCount
-      print("Sample Blur Volume: {:.0f} [photons]".format(sampleBlurVol))
-      print("Sample Blur Peak: {:.0f} [photons]".format(self.sd['sampleBlurPeak']))  
+      
+      # detect camera saturation
+      bins = np.bincount(sampleROIBlur.ravel(),minlength=nCameraValues)
+      nPix = sum(bins)
+      nCloseToSat = sum(bins[-round(nCameraValues*0.05):])
+      if nPix*0.1 < nCloseToSat:
+        print("WARNING: Image saturation detected. >10% of pixels are within 5% of their max value")
+        cameraSaturated = True
+      else:
+        cameraSaturated = False
+        sampleROIXRes = sampleROIBlur.shape[0]
+        sampleROIYRes = sampleROIBlur.shape[1]
+        sxv = np.linspace(0, sampleROIXRes-1, sampleROIXRes)
+        syv = np.linspace(0, sampleROIYRes-1, sampleROIYRes)
+        #sxm, sym = np.meshgrid(sxv, syv,indexing='ij')
+        sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,sampleROIBlur * self.camPhotonsPerCount)
+        sampleBlurVol = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
+        self.sd['sampleBlurVol'] = sampleBlurVol
+        self.sd['sampleBlurPeak'] = sampleROIBlur.max() * self.camPhotonsPerCount
+        print("Sample Blur Volume: {:.0f} [photons]".format(sampleBlurVol))
+        print("Sample Blur Peak: {:.0f} [photons]".format(self.sd['sampleBlurPeak']))
+      
     
-    if self.fitSpot and (not cantFindSubstrate):
+    if self.fitSpot and (not cantFindSubstrate) and (not cameraSaturated):
       xRes = ROI.shape[0]
       yRes = ROI.shape[1]
       

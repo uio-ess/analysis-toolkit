@@ -13,7 +13,7 @@ home = str(Path.home())
 
 db_name = 'FEB_18_OCL.db'
 session = "FEB '18 OCL"
-fullpath = home + '/' + db_name
+fullpath = home + '/' + db_name 
 
 
 conn = sqlite3.connect('file:' + fullpath + '?mode=ro', uri=True)
@@ -47,8 +47,10 @@ doi = doi.loc[doi['avgBeamCurrent'] > 20]
 doi = doi.loc[~doi['camSpotAmplitude'].isnull()]
 
 # filter out bad ruby peak fits
-doi = doi.loc[doi['aHeight'] > 0]
-doi = doi.loc[doi['bHeight'] > 0]
+#doi = doi.loc[~doi['aHeight'].isnull()]
+#doi = doi.loc[~doi['bHeight'].isnull()]
+doi = doi.loc[doi['aHeight'].astype(float) > 0]
+doi = doi.loc[doi['bHeight'].astype(float) > 0]
 
 # unique samples
 temperatureSamples = doi['sample_name'].unique()
@@ -85,7 +87,7 @@ for sample in temperatureSamples:
   #plt.title(sample)
   fig.tight_layout()
   
-  y2 = np.array(sampleRows['bCen']) - np.array(sampleRows['aCen'])
+  y2 = np.array(sampleRows['bCen'].astype(float)) - np.array(sampleRows['aCen'].astype(float))
   fig, ax1 = plt.subplots()
   ax1.plot(x, y1, 'b-')
   ax1.set_xlabel('Time [min]')
@@ -163,8 +165,8 @@ doi = df.loc[df['temperature'].isnull()]
 doi = doi.loc[doi['avgBeamCurrent']>20]
 
 # filter out bad ruby peak fits
-doi = doi.loc[doi['aHeight'] > 0]
-doi = doi.loc[doi['bHeight'] > 0]
+doi = doi.loc[doi['aHeight'].astype(float) > 0]
+doi = doi.loc[doi['bHeight'].astype(float) > 0]
 
 # filter day 1
 doi = doi.loc[doi['trigger_id'] > 6000] # ignore day one data
@@ -178,8 +180,8 @@ plt.figure()
 for sample in samples:
   sampleRow = doi.loc[doi['sample_name'] == sample]
   sCharge[sample] = np.array(sampleRow['spectroCharge'])
-  sPeak[sample] = np.array(sampleRow['bHeight'])
-  camEff[sample] = sPeak[sample] / sCharge[sample]
+  sPeak[sample] = np.array(sampleRow['bHeight'].astype(float))
+  camEff[sample] = sPeak[sample].astype(float) / sCharge[sample].astype(float)
   plt.plot(sCharge[sample],sPeak[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
 
 plt.xlabel('Charge Through Sample [nC]')
