@@ -48,7 +48,7 @@ class analyzer:
         print('Processing', fullPath, '...')        
         self.processOneFile(f)
       except:
-        print("Failed to process {:}".format(f.name))
+        print("WARNING: Failed to process {:}".format(f.name))
       self.drawPlots and plt.show()
     print("Done processing all files.")
     
@@ -123,7 +123,7 @@ class analyzer:
     try:
       self.postAnalysis()
     except:
-      print("Failed during postAnalysis()")
+      print("WARNING: Failed during postAnalysis()")
     
     # store what we've learned in our database
     self.t.upsert(self.sd, ['int_hash'], ensure=True)
@@ -145,6 +145,13 @@ class analyzer:
     
     camCharge = np.trapz(y,x=x)  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['camCharge'] = camCharge * 1e9
+    
+    if 'sampleCupFraction' in self.sd:
+      usefulProtons = round(camCharge/constants.e * self.sd['sampleCupFraction'])
+      if 'sampleBlurVol' in self.sd:
+        self.sd['photonsPerProtonBlur'] = self.sd['sampleBlurVol']/usefulProtons
+      if 'sampleGausVol' in self.sd:
+        self.sd['photonsPerProtonGaus'] = self.sd['sampleGausVol']/usefulProtons
     
     # integration range for spectrometer
     intRange = (0, self.t_spectrumExposure) # seconds
@@ -178,6 +185,7 @@ class analyzer:
     return img_crop  
     
   def camAnalysis(self, camData):
+    camData = np.flipud(camData)    
     if self.drawPlots:
       # for the image
       fig = plt.figure()
@@ -206,13 +214,19 @@ class analyzer:
     #self.sd['camMax'] = float(camMax * self.camPhotonsPerCount)
     
     # global auto-threshold the image (for finding the substrate)
-    cdo = cv2.convertScaleAbs(cdo) # truncate to 8 bit because cv2 is crap for 16bit numbers :-P
+    #cdo = cv2.convertScaleAbs(cdo) # truncate to 8 bit because cv2 is crap for 16bit numbers :-P
+    cdo = cdo/cameraValues*(2**8-1)
+    cdo = cdo.astype(np.uint8)
     blur = cv2.medianBlur(src=cdo, ksize=15) # big filter here    
     ret,thresh = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
     nz = cv2.findNonZero(thresh) # thresh --> bool
     mar = cv2.minAreaRect(nz) # find our substrate
+    subsX = mar[1][0]
+    subsY = mar[1][1]
+    cupX = 462 # subsX*1.2
+    cupY = 535 # subsY*1.3
     approxSubstrateArea = mar[1][0] * mar[1][1]  # compute substrate area
-    imgArea = camData.shape[0] * camData.shape[0] # compute whole image area
+    imgArea = camData.shape[0] * camData.shape[1] # compute whole image area
     substrateAreaFactor = 0.8
     if imgArea * substrateAreaFactor < approxSubstrateArea: # test if the ROI is huge
       cantFindSubstrate = True
@@ -236,17 +250,31 @@ class analyzer:
     # now crop and rotate the camera data
     if not cantFindSubstrate:
       ROI = analyzer.crop_minAreaRect(camData,smaller)
-      camData = ROI    
+      bigROI = analyzer.crop_minAreaRect(camData,mar)
+      ROI = np.flipud(ROI)
+      sampleROI = np.flipud(ROI) - background
+      sampleROIBlur = cv2.medianBlur(src=bigROI, ksize=5)
+      sampleROIXRes = sampleROIBlur.shape[0]
+      sampleROIYRes = sampleROIBlur.shape[1]
+      sxv = np.linspace(0, sampleROIXRes-1, sampleROIXRes)
+      syv = np.linspace(0, sampleROIYRes-1, sampleROIYRes)
+      #sxm, sym = np.meshgrid(sxv, syv,indexing='ij')
+      sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,sampleROIBlur * self.camPhotonsPerCount)
+      sampleBlurVol = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
+      self.sd['sampleBlurVol'] = sampleBlurVol
+      self.sd['sampleBlurPeak'] = sampleROIBlur.max() * self.camPhotonsPerCount
+      print("Sample Blur Volume: {:.0f} [photons]".format(sampleBlurVol))
+      print("Sample Blur Peak: {:.0f} [photons]".format(self.sd['sampleBlurPeak']))  
     
     if self.fitSpot and (not cantFindSubstrate):
-      xRes = camData.shape[0]
-      yRes = camData.shape[1]
+      xRes = ROI.shape[0]
+      yRes = ROI.shape[1]
       
       # let's make some initial guesses for the 2d gaussian fit
-      twoDG_model = Model(analyzer.twoD_Gaussian, independent_vars=['x','y'])
+      twoDG_model = Model(analyzer.twoD_Gaussian, independent_vars=['x','y', 'offset'])
       guesses = twoDG_model.make_params()      
       # the raw image moment calculation forms the basis of our guesses
-      m = cv2.moments(camData)
+      m = cv2.moments(ROI)
       
       data_sum = m['m00']
       
@@ -257,17 +285,19 @@ class analyzer:
       angle = 0.5 * np.arctan(2 * m['mu11'] / (m['mu20'] - m['mu02']))
       guesses['theta'].value = abs(angle - constants.pi/4) - constants.pi/4# lol, wtf, check this agains more examples
       
-      guesses['sigma_y'].value = np.sqrt(m['mu20']/m['m00']) 
+      guesses['sigma_y'].value = np.sqrt(m['mu20']/m['m00'])
       guesses['sigma_x'].value = np.sqrt(m['mu02']/m['m00'])
       
       # take an average of the points around the peak to find amplitude
       avgWinLen = 11 # must be odd
-      xc = round(x_bar)
-      yc = round(y_bar)
-      amplitudeWin = camData[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
+      xc = round(guesses['xo'].value)
+      yc = round(guesses['yo'].value)
+      amplitudeWin = ROI[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
       guesses['amplitude'].value = amplitudeWin.mean() - background
       
-      guesses['offset'].value = background
+      #guesses['offset'].value = background
+      #guesses['offset'].max = background
+      #guesses['offset'].min = background
       
       # Create x and y grid
       xv = np.linspace(0, xRes-1, xRes)
@@ -275,7 +305,7 @@ class analyzer:
       x, y = np.meshgrid(xv, yv,indexing='ij')
       
       try:
-        fitResult = twoDG_model.fit(camData, x=x, y=y, params=guesses, nan_policy='omit')
+        fitResult = twoDG_model.fit(ROI, x=x, y=y, offset=background, params=guesses, nan_policy='omit')
         fitFail = False
       except:
         fitFail = True
@@ -284,48 +314,73 @@ class analyzer:
       # the fit parameters in photons
       amplitude = fitResult.params['amplitude'].value
       theta = fitResult.params['theta'].value
-      peakPos = (fitResult.params['xo'].value, fitResult.params['yo'].value)
+      peakPos = (fitResult.params['yo'].value, fitResult.params['xo'].value)
       peakX = peakPos[0]
       peakY = peakPos[1]
-      sigma = (fitResult.params['sigma_x'].value,fitResult.params['sigma_y'].value)
+      sigma = (fitResult.params['sigma_y'].value,fitResult.params['sigma_x'].value)
       sigmaX = sigma[0]
       sigmaY = sigma[1]
-      baseline = fitResult.params['offset'].value
+      cupYSigmas = cupY/sigmaY
+      cupXSigmas = cupX/sigmaX
+      #baseline = fitResult.params['offset'].value
+      baseline = background
       peak = amplitude + baseline
       
-      totalVolume = abs(2 * constants.pi * amplitude * sigmaX * sigmaY)
+      totalVolume = abs(2 * constants.pi * amplitude * self.camPhotonsPerCount * sigmaX * sigmaY)
       
       if fitFail:
         print('Camera spot 2D gaussian fit failure')
       else:
         self.sd['camSpotAmplitude'] = amplitude * self.camPhotonsPerCount
-        self.sd['camSpotVolume'] = totalVolume * self.camPhotonsPerCount
-        #TODO: integration over the cup should be put here
+        self.sd['camSpotVolume'] = totalVolume
+        self.sd['sigmaA'] = sigmaX
+        self.sd['sigmaB'] = sigmaY
+        
+        # cup calcs
+        cupXv = np.linspace(-cupX/2, cupX/2, cupX)
+        cupYv = np.linspace(-cupY/2, cupY/2, cupY)
+        cupXm, cupYm = np.meshgrid(cupXv, cupYv, indexing='ij')
+        cupParams = fitResult.params.copy()
+        cupParams['xo'].value = 0
+        cupParams['yo'].value = 0
+        cupParams['theta'].value = 0
+        
+        cupSurface2D = twoDG_model.eval(x=cupXm, y=cupYm, offset=baseline, params=cupParams) - background
+        cupF = interpolate.RectBivariateSpline(cupXv,cupYv,cupSurface2D * self.camPhotonsPerCount)
+        cupVol = cupF.integral(-cupX/2, cupX/2, -cupY/2, cupY/2)
+        sampleVol = cupF.integral(-subsX/2, subsX/2, -subsY/2, subsY/2)
+        print("Fariday Cup : Substrate Ratio = 1:{:.2f}".format(sampleVol/cupVol))
+        self.sd['sampleCupFraction'] = sampleVol/cupVol
+        self.sd['sampleGausVol'] = sampleVol
   
       print("Camera Spot Height: {:.0f} [photons]".format(amplitude * self.camPhotonsPerCount))
-      print("Camera Spot Volume: {:.0f} [photon*pixel^2]".format(totalVolume * self.camPhotonsPerCount))    
+      print("Total Beam Volume: {:.0f} [photons]".format(totalVolume))
+      print("Sample Gaus Volume: {:.0f} [photons]".format(sampleVol))
     
       if self.drawPlots:
-        fitSurface2D = twoDG_model.eval(x=x,y=y,params=fitResult.params)   
+        fitSurface2D = twoDG_model.eval(x=x,y=y, offset=baseline, params=fitResult.params)
         
         # let's make some evaluation lines
         nPoints = 100
         nSigmas = 4 # line length, number of sigmas to plot in each direction
         rA = np.linspace(-nSigmas*sigma[0],nSigmas*sigma[0],nPoints) # radii (in polar coords for line A)
-        AX = rA*np.cos(theta-np.pi/4) + peakPos[0] # x values for line A
-        AY = rA*np.sin(theta-np.pi/4) + peakPos[1] # y values for line A
+        AX = rA*np.cos(theta+np.pi/2) + peakPos[0] # x values for line A
+        AY = rA*np.sin(theta+np.pi/2) + peakPos[1] # y values for line A
       
         rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
-        BX = rB*np.cos(theta+np.pi/4) + peakPos[0] # x values for line B
-        BY = rB*np.sin(theta+np.pi/4) + peakPos[1] # y values for line B    
+        BX = rB*np.cos(theta) + peakPos[0] # x values for line B
+        BY = rB*np.sin(theta) + peakPos[1] # y values for line B
+        
+        #xResCam = CamData.shape[0]
+        #yResCam = CamData.shape[1]        
       
-        f = interpolate.RectBivariateSpline(xv,yv,camData) # linear interpolation for data surface
+        f = interpolate.RectBivariateSpline(xv,yv,ROI) # linear interpolation for data surface
       
         lineAData = f.ev(AX,AY)
-        lineAFit = twoDG_model.eval(x=AX,y=AY,params=fitResult.params)
+        lineAFit = twoDG_model.eval(x=AX,y=AY,offset=baseline,params=fitResult.params)
       
         lineBData = f.ev(BX,BY)
-        lineBFit = twoDG_model.eval(x=BX,y=BY,params=fitResult.params)
+        lineBFit = twoDG_model.eval(x=BX,y=BY,offset=baseline,params=fitResult.params)
       
         residuals = lineBData - lineBFit
         ss_res = np.sum(residuals**2)
@@ -334,17 +389,17 @@ class analyzer:
         
         fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
         fig.suptitle('Camera|' + self.titleString, fontsize=10)
-        axes[0,0].imshow(camData, cmap=plt.cm.copper, origin='bottom',
-                  extent=(x.min(), x.max(), y.min(), y.max()))
+        axes[0,0].imshow(ROI, cmap=plt.cm.copper, 
+                  extent=(yv.min(), yv.max(), xv.min(), xv.max()))
         if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
-          axes[0,0].contour(x, y, fitSurface2D, 3, colors='w')
+          axes[0,0].contour(y, x, fitSurface2D, 3, colors='w')
         else:
           print('Warning: contour() bug avoided')
         axes[0,0].plot(AX,AY,'r') # plot line A
         axes[0,0].plot(BX,BY,'g') # plot line B
         axes[0,0].set_title("Image Data")
-        axes[0,0].set_ylim([y.min(), y.max()])
-        axes[0,0].set_xlim([x.min(), x.max()])
+        axes[0,0].set_ylim([xv.min(), xv.max()])
+        axes[0,0].set_xlim([yv.min(), yv.max()])
       
         axes[1,0].plot(rA,lineAData,'r',label='Data')
         axes[1,0].plot(rA,lineAFit,'k',label='Fit')
