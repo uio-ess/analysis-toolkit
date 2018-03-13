@@ -279,8 +279,8 @@ class analyzer:
       data_sum = m['m00']
       
       # "center of mass"
-      guesses['xo'].value = m['m10']/data_sum
-      guesses['yo'].value = m['m01']/data_sum
+      guesses['yo'].value = m['m10']/data_sum
+      guesses['xo'].value = m['m01']/data_sum
       
       angle = 0.5 * np.arctan(2 * m['mu11'] / (m['mu20'] - m['mu02']))
       guesses['theta'].value = abs(angle - constants.pi/4) - constants.pi/4# lol, wtf, check this agains more examples
@@ -292,7 +292,8 @@ class analyzer:
       avgWinLen = 11 # must be odd
       xc = round(guesses['xo'].value)
       yc = round(guesses['yo'].value)
-      amplitudeWin = ROI[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
+      #amplitudeWin = ROI[xc-(avgWinLen-1)//2:xc+(avgWinLen-1)//2,yc-(avgWinLen-1)//2:yc+(avgWinLen-1)//2]
+      amplitudeWin = ROI[xc,yc]
       guesses['amplitude'].value = amplitudeWin.mean() - background
       
       #guesses['offset'].value = background
