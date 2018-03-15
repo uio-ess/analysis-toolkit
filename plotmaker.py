@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import matplotlib.pylab as plt
+import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 from lmfit import Model
 from scipy import constants
@@ -14,7 +14,7 @@ from scipy import constants
 from pathlib import Path
 home = str(Path.home())
 
-db_name = 'FEB_18_OCL_new.db'
+db_name = 'FEB_18_OCL.db'
 session = "FEB '18 OCL"
 fullpath = home + '/' + db_name 
 
@@ -158,7 +158,7 @@ for sample in samples:
   plt.plot(camCharge[sample]/camTime[sample],camPeak[sample]/camTime[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
   
 
-plt.xlabel('Current Through Sample [nA]')
+plt.xlabel('Faraday Cup Current [nA]')
 plt.ylabel('Photons per Second (peak, form Gaus. fit)')
 plt.title('Camera Photon Capture Rate Vs Current'+'|'+session)
 plt.tight_layout()
@@ -193,7 +193,7 @@ for sample in samples:
   sTime[sample] = np.array(sampleRow['t_spectrumExposure'])
   plt.plot(sCharge[sample]/sTime[sample],sPeak[sample]/sTime[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
 
-plt.xlabel('Current Through Sample [nA]')
+plt.xlabel('Faraday Cup Current [nA]')
 plt.ylabel('Spectrometer Ruby Peak Counts per Second')
 plt.title('Spectrometer Ruby Peak Vs Current'+'|'+session)
 plt.ylim((0, 100000))
@@ -228,7 +228,7 @@ for sample in samples:
   camTime[sample] = np.array(sampleRow['t_camExposure'])
   plt.plot(camCharge[sample]/camTime[sample],camPeak[sample]/camTime[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
 
-plt.xlabel('Current Through Sample [nA]')
+plt.xlabel('Faraday Cup Current [nA]')
 plt.ylabel('Photons per Second (peak, max() after median filt.)')
 plt.title('Camera Peak Photons Vs Current'+'|'+session)
 plt.tight_layout()
@@ -262,8 +262,8 @@ for sample in samples:
   camTime[sample] = np.array(sampleRow['t_camExposure'])
   plt.plot(camCharge[sample]/camTime[sample],photonVol[sample]/camTime[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
 
-plt.xlabel('Current Through Sample [nC]')
-plt.ylabel('Photons per Second(total seen by camera after median filt.)')
+plt.xlabel('Faraday Cup Current [nA]')
+plt.ylabel('Photons per Second (total seen by camera after median filt.)')
 plt.title('Camera Total Photons Vs Current'+'|'+session)
 plt.tight_layout()
 plt.legend()
@@ -276,36 +276,73 @@ plt.grid()
 doi = df.loc[df['temperature'].isnull()]
 
 # filter out beam off data
-doi = doi.loc[doi['avgBeamCurrent']>20]
+doi = doi.loc[doi['avgBeamCurrent'] > 20]
 
 # filter day 1
 doi = doi.loc[doi['trigger_id'] > 6000] # ignore day one data
 
-samplePhotonsPerCamPhoton = 5326.5557712833215
+# filter bad gaus fits
+doi = doi.loc[~doi['sampleGausVol'].isnull()]
 
+samplePhotonsPerCamPhoton = 5326.5557712833215
+mod = LinearModel()
 samples = doi['sample_name'].unique()
 sampleCupFraction = {}
 camCharge = {}
 camTime = {}
 sampleGausVol = {}
 usefulProtons = {}
-plt.figure()
+pa = {}
+pb = {}
+slopes = {}
+colors = {}
+
+fig, ax = plt.subplots()
 for sample in samples:
   sampleRow = doi.loc[doi['sample_name'] == sample]
-  camCharge[sample] = np.array(sampleRow['camCharge'])
+  camCharge[sample] = np.array(sampleRow['camCharge']) * 1e-9
   sampleGausVol[sample] = np.array(sampleRow['sampleGausVol'])
   sampleCupFraction[sample] = np.array(sampleRow['sampleCupFraction'])
   camTime[sample] = np.array(sampleRow['t_camExposure'])
-  usefulProtons[sample] = round(camCharge[sample]/constants.e * sampleCupFraction[sample])
-  plt.plot(usefulProtons[sample]/camTime[sample],sampleGausVol[sample]/camTime[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
+  usefulProtons[sample] = (camCharge[sample]/constants.e * sampleCupFraction[sample]).round()
+  x = usefulProtons[sample]/camTime[sample]
+  y = sampleGausVol[sample]/camTime[sample]*samplePhotonsPerCamPhoton
+  p = ax.plot(x,y,linestyle = 'None',marker='o',alpha=0.2)
+  color = p[0].get_color()
+  colors[sample] = color
+  guesses = mod.guess(y, x=x)
+  fitResult  = mod.fit(y, guesses, x=x)
+  slope = fitResult.best_values['slope']
+  slopes[sample] = slope
+  y2 = fitResult.best_fit
+  ax.plot(x,y2,color,label=sample)
+  
+  x_mid = (x.max() + x.min())/2
+  y_mid = mod.eval(x=x_mid,**fitResult.best_values)
+  xp2 = x.max()
+  yp2 = mod.eval(x=xp2,**fitResult.best_values)
 
-plt.xlabel('Current Through Sample [nC]')
-plt.ylabel('Photons per Second(total seen by camera after median filt.)')
-plt.title('Camera Total Photons Vs Current'+'|'+session)
-plt.tight_layout()
-plt.legend()
-plt.grid()
+  
+  pa[sample] = (x_mid,y_mid)
+  pb[sample] = (xp2,yp2)
+  
+ax.set_xlabel('Proton Flux Through Sample [proton/s]')
+ax.set_ylabel('Photon Emission From Sample [photon/s]')
+ax.set_title('Photons per Proton'+'|'+session)
+ax.legend()
+ax.grid()
+fig.tight_layout()
 
+# annotate the plot with text on the lines now
+for sample in samples:
+  pat = ax.transData.transform(pa[sample])
+  pbt = ax.transData.transform(pb[sample])
+  tslope = (pat[1] - pbt[1])/(pat[0] - pbt[0])
+  trans_angle = np.rad2deg(np.arctan(tslope))
+  ax.annotate("{:.0f}".format(slopes[sample]), xy=(pa[sample][0], pa[sample][1]),  xycoords='data',
+                xytext=(0, 0), textcoords='offset points',rotation=trans_angle,ha='center',va='bottom',color=colors[sample],weight='bold', rotation_mode='anchor')
+  
+  
 
 
 # PperP boxplot
@@ -362,6 +399,10 @@ y1 = np.array(doi['avgBeamCurrent'])
 y2A = np.array(doi['sigmaA'])
 y2B = np.array(doi['sigmaB'])
 
+# pick out the larger and smaller sigmas
+y2H = np.maximum(y2A,y2B)
+y2L = np.minimum(y2A,y2B)
+
 
 fig, ax1 = plt.subplots()
 ax1.plot(x, y1, 'b',linestyle = 'None',marker='o')
@@ -374,8 +415,8 @@ ax1.set_ylabel('Beam Current [nA]', color='b')
 ax1.tick_params('y', colors='b')
 
 ax2 = ax1.twinx()
-ax2.plot(x, y2A, 'r-',label='$^\sigma$A')
-ax2.plot(x, y2B, 'r:',label='$^\sigma$B')
+ax2.plot(x, y2H, 'r-',label='$^\sigma$A')
+ax2.plot(x, y2L, 'r:',label='$^\sigma$B')
 ax2.set_ylabel('Spot standard deviations [pixels]', color='r')
 ax2.tick_params('y', colors='r')
 ax2.yaxis.grid(color='r')
@@ -386,38 +427,7 @@ ax2.legend()
 #plt.title(sample)
 fig.tight_layout()
 
-#samples = doi['sample_name'].unique()
-##photonVol = {}
-##camCharge = {}
-##camEff = {}
-#trigger = {}
-#pPerP = {}
-#plt.figure()
-#for sample in samples:
-  #sampleRow = doi.loc[doi['sample_name'] == sample]
-  #trigger[sample] = np.array(sampleRow['trigger_id'])
-  #pPerP[sample] = np.array(sampleRow['photonsPerProtonGaus'])
-  ##camEff[sample] = camPeak[sample] / camCharge[sample]
-  #plt.plot(trigger[sample],pPerP[sample],linestyle = 'None',marker='o',label=sample,markeredgewidth=0.0)
-
-#plt.xlabel('Trigger Number')
-#plt.ylabel('Photons per Proton (from Gaus. fit integration)')
-#plt.title('Photons per Proton'+'|'+session)
-#plt.tight_layout()
-#plt.legend()
-#plt.grid()
-
-
-  
-#marker=mark,
-#  markerfacecolor='None',
-#  markeredgecolor=color,
-#  linestyle = 'None',
- # label=`i`
 
 plt.show()
 
-#df.loc
-
-# get first table
 print("Done")

@@ -283,7 +283,7 @@ class analyzer:
         sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,(sampleROIBlur - background) * self.camPhotonsPerCount)
         self.sd['sampleBlurVol'] = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
         self.sd['sampleBlurPeak'] = sampleROIBlur.max() * self.camPhotonsPerCount
-        print("Sample Blur Volume: {:.0f} [photons]".format(sampleBlurVol))
+        print("Sample Blur Volume: {:.0f} [photons]".format(self.sd['sampleBlurVol']))
         print("Sample Blur Peak: {:.0f} [photons]".format(self.sd['sampleBlurPeak']))
       
     
