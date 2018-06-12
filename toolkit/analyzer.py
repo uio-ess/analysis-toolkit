@@ -630,12 +630,12 @@ class analyzer:
         except:
           print("Failed during camera image analysis.")
 
-      elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_data' in obj.name):  # spectrometer plot
+      elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_values' in obj.name):  # spectrometer plot
         try:
           parent = obj.parent
           xPlot = parent.get('x_values')[:]
           xlen = len(xPlot)
-          yPlot = parent.get('y_data')[0:xlen]  # TODO doubcle check this length
+          yPlot = parent.get('y_values')[0:xlen]  # TODO doubcle check this length
           y_scale = parent.get('y_scale')[0:xlen]
         
           self.spectAnalysis(xPlot, yPlot, y_scale)
@@ -644,10 +644,13 @@ class analyzer:
           
       elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('ps4264py' in obj.name) and ('y_data' in obj.name):
         try:
-          y = np.array(obj.value)
-          t0 = obj.attrs['t0']
-          t_end = obj.attrs['t_end']
-          x = np.linspace(t0,t_end,len(y))
+          y = np.linspace(2,3,1000)  # HACK
+          x = np.linspace(0,0.1, len(y))  # HACK
+          #TODO the code should be this:
+          #y = np.array(obj.value)
+          #t0 = obj.attrs['t0']
+          #t_end = obj.attrs['t_end']
+          #x = np.linspace(t0,t_end,len(y))
           self.currentAnalysis(x,y)
         except:
           print("Failed during current analysis.")
