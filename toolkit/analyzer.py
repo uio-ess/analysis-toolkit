@@ -82,8 +82,7 @@ class analyzer:
     root = f.get('/')
     print('/')
     
-    session = "FEB '18 OCL"
-    #session = root.attrs.get('session')  # TODO: insert session attr into sample HDF5 files
+    session = root.attrs.get('session')
     self.sd['session'] = session
     safeSession = re.sub(r'\W+', '', session) # allow this to become a table name
     self.t = self.db.create_table(safeSession, primary_id='int_hash', primary_type=self.db.types.bigint)
@@ -610,13 +609,17 @@ class analyzer:
         print('\t{:}--> {:}'.format(key,val))
         val = str(val)  # make sure we're comparing two str objects below
         if val == 'Manta camera':
-          self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          #self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to acquire_duration
+          self.t_camExposure = obj.attrs['Capture Time']  # TODO: change this to acquire_duration
           self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
-          self.t_spectrumExposure = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
+          #self.t_spectrumExposure = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to acquire_duration
+          self.t_spectrumExposure = obj.attrs['Capture Time']  # TODO: change this to acquire_duration
           self.sd['t_spectrumExposure'] = self.t_spectrumExposure
-        elif val == 'LairdTech temperature regulator':
-          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV']
+        elif val == 'LairdTech temperature regulator': # legacy
+          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV'] # legacy
+        elif val == 'm-ethercat with EL3318':
+          self.sd['temperature'] = obj.attrs['temperature']
 
     if type(obj) is h5py._hl.dataset.Dataset:
       print(obj.name+' <-- dataset')
@@ -639,11 +642,12 @@ class analyzer:
         except:
           print("Failed during spectrum analysis.")
           
-      elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('wavefront' in obj.name) and ('y_data' in obj.name):
+      elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('ps4264py' in obj.name) and ('y_data' in obj.name):
         try:
-          parent = obj.parent
-          x = parent.get('x_data')[:]
-          y = parent.get('y_data')[:]
+          y = np.array(obj.value)
+          t0 = obj.attrs['t0']
+          t_end = obj.attrs['t_end']
+          x = np.linspace(t0,t_end,len(y))
           self.currentAnalysis(x,y)
         except:
           print("Failed during current analysis.")
