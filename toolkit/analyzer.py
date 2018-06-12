@@ -608,6 +608,7 @@ class analyzer:
     print(name)
     for key, val in obj.attrs.items():
         print('\t{:}--> {:}'.format(key,val))
+        val = str(val)  # make sure we're comparing two str objects below
         if val == 'Manta camera':
           self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to capture_time
           self.sd['t_camExposure'] = self.t_camExposure
