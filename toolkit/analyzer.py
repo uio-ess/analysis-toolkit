@@ -92,12 +92,6 @@ class analyzer:
     # form row hash/title string out of sample name, trigger count and session
     attr = 'sample_name'
     self.sd[attr] = root.attrs.get(attr)
-    try:
-      stageSample = root['data/linearstage/standa'].attrs.get('Current_sample')  # TODO: remove this hack
-    except:
-      stageSample = None
-    if (stageSample is not None) and (stageSample != self.sd[attr]):
-      self.sd[attr] = stageSample
     
     attr = 'trigger_id'
     self.sd[attr] = int(root.attrs.get(attr)) # hopefully nothing gets mangled by the int cast here...
@@ -609,12 +603,10 @@ class analyzer:
         print('\t{:}--> {:}'.format(key,val))
         val = str(val)  # make sure we're comparing two str objects below
         if val == 'Manta camera':
-          #self.t_camExposure = obj.attrs['CAM1:det1:AcquireTime_RBV']  # TODO: change this to acquire_duration
-          self.t_camExposure = obj.attrs['Capture Time']  # TODO: change this to acquire_duration
+          self.t_camExposure = obj.attrs['acquire_duration']  # TODO: change this to acquire_duration
           self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
-          #self.t_spectrumExposure = obj.attrs['CCS1:det1:AcquireTime_RBV']  # TODO: change this to acquire_duration
-          self.t_spectrumExposure = obj.attrs['Capture Time']  # TODO: change this to acquire_duration
+          self.t_spectrumExposure = obj.attrs['acquire_duration']  # TODO: change this to acquire_duration
           self.sd['t_spectrumExposure'] = self.t_spectrumExposure
         elif val == 'LairdTech temperature regulator': # legacy
           self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV'] # legacy
@@ -644,13 +636,10 @@ class analyzer:
           
       elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('ps4264py' in obj.name) and ('y_data' in obj.name):
         try:
-          y = np.linspace(2,3,1000)  # HACK
-          x = np.linspace(0,0.1, len(y))  # HACK
-          #TODO the code should be this:
-          #y = np.array(obj.value)
-          #t0 = obj.attrs['t0']
-          #t_end = obj.attrs['t_end']
-          #x = np.linspace(t0,t_end,len(y))
+          y = np.array(obj.value)
+          t0 = obj.attrs['t0']
+          t_end = obj.attrs['t_end']
+          x = np.linspace(t0,t_end,len(y))
           self.currentAnalysis(x,y)
         except:
           print("Failed during current analysis.")
