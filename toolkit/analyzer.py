@@ -10,6 +10,7 @@ import hashlib
 import matplotlib.pylab as plt
 import numpy as np
 from lmfit.models import LorentzianModel, LinearModel, VoigtModel, GaussianModel
+import scipy
 from lmfit import Model
 from scipy import signal
 from scipy import constants
@@ -25,11 +26,11 @@ class analyzer:
   for the ESS proton beam imaging system
   """
   
-  camPhotonsPerCount = 5.7817 # TODO: read this from the data when it's ready
+  camPhotonsPerCount = 5.7817 # TODO: read all this from the data now
   T_len = 0.95 # lens transmission
   Fn = 2.8 # f-number
   F = 50 # focal length
-  L = 1185 # distance to target
+  L = 1120 # distance to target
   D = F / Fn
   theta = D / 2 / L # TODO check order of operations here
   Omega = constants.pi * theta**2
@@ -504,6 +505,10 @@ class analyzer:
     self.currentX = x
     self.currentY = y
     
+    #FFT = abs(scipy.fft(y))
+    #dx = x[1]-x[0]
+    #freqs = scipy.fftpack.fftfreq(y.size, dx)
+    
     if self.drawPlots:
       plt.figure()
       plt.plot(x*1000, y*1e9, marker='.', label='Data')
@@ -514,6 +519,15 @@ class analyzer:
       plt.ylabel('Beam Current [nA]')
       plt.grid()
       plt.legend()
+      
+      #plt.figure()
+      #plt.plot(freqs/1000,20*scipy.log10(FFT),'x')
+      #plt.title('Beam Current FFT|' + self.titleString)
+      
+      #plt.xlabel('Frequency [kHz]')
+      #plt.ylabel('Intensity [arb]')
+      #plt.xlim(xmin=0)
+      #plt.grid()      
       
   def spectAnalysis(self, xPlot, yPlot, y_scale):
     #y = y/y_scale # TODO: check scaling
