@@ -264,8 +264,8 @@ class analyzer:
       bins = np.bincount(sampleROIBlur.ravel(),minlength=nCameraValues)
       nPix = sum(bins)
       nCloseToSat = sum(bins[-round(nCameraValues*0.05):])
-      if nPix*0.1 < nCloseToSat:
-        print("WARNING: Image saturation detected. >10% of pixels are within 5% of their max value")
+      if nPix*0.04 < nCloseToSat:
+        print("WARNING: Image saturation detected. >4% of pixels are within 5% of their max value")
         cameraSaturated = True
       else:
         cameraSaturated = False

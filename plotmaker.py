@@ -37,6 +37,9 @@ queryString = "select * from {:};".format(tableName)
 
 df = pd.read_sql_query(queryString, conn)
 
+# TODO: read from the files
+camPhotonsPerCount = 5.7817
+
 
 # time on x axis temperature plots
 enable_this_section = False
@@ -290,7 +293,8 @@ if enable_this_section:
   doi = doi.loc[doi['camSpotAmplitude'] > 0]
   
   # filter setup runs
-  doi = doi.loc[doi['trigger_id'] > 1142] # ignore setup data
+  doi = doi.loc[doi['trigger_id'] >= 1143] # ignore setup data
+  doi = doi.loc[doi['trigger_id'] <= 1343] # ignore setup data
   
   # TODO: read these from the files
   samplePhotonsPerCamPhoton = 5326.5557712833215
@@ -351,7 +355,39 @@ if enable_this_section:
     ax.annotate("{:.0f}".format(slopes[sample]), xy=(pa[sample][0], pa[sample][1]),  xycoords='data',
                   xytext=(0, 0), textcoords='offset points',rotation=trans_angle,ha='center',va='bottom',color=colors[sample],weight='bold', rotation_mode='anchor')
     
+
+
+# light scan boxplot
+enable_this_section = True
+if enable_this_section:
+  # only fixed exposure light scans
+  doi = df.loc[df['trigger_id'] >= 1481]
+  doi = doi.loc[doi['trigger_id'] <= 1534]
   
+  # only good peak fits
+  doi = doi.loc[doi['aHeight'].astype(float) > 0]
+  doi = doi.loc[doi['bHeight'].astype(float) > 0]
+  
+  doi = doi.loc[doi['sample_name'] != 'HV10'] # remove HV10 it's too small
+  
+  samples = doi['sample_name'].unique()
+  trigger = {}
+  pPerP = []
+  fig, ax = plt.subplots()
+  for sample in samples:
+    sampleRow = doi.loc[doi['sample_name'] == sample]
+    pPerP.append(np.array(sampleRow['bHeight'].astype(float)))
+  
+  ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
+  ax.yaxis.grid()
+  for i in range(len(samples)):
+    y = pPerP[i]
+    x = np.random.normal(1+i, 0.04, size=len(y))
+    ax.plot(x, y, 'm.', alpha=0.1)
+  #plt.xlabel('Trigger Number')
+  ax.set_ylabel('Ruby Emission Peak [spectrometer counts]')
+  ax.set_title(session+ ' | 375nm LED')
+  fig.tight_layout() 
 
 
 # PperP boxplot
@@ -364,7 +400,8 @@ if enable_this_section:
   doi = doi.loc[doi['camSpotAmplitude'] > 0]
   
   # filter setup runs
-  doi = doi.loc[doi['trigger_id'] > 1142] # ignore setup data
+  doi = doi.loc[doi['trigger_id'] >= 1143] # ignore setup data
+  doi = doi.loc[doi['trigger_id'] <= 1343] # ignore setup data
   
   samples = doi['sample_name'].unique()
   trigger = {}
