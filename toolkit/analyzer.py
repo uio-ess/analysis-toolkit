@@ -495,7 +495,7 @@ class analyzer:
     return g
       
   def currentAnalysis(self, x, y):
-    y = abs(y)
+    #y = abs(y)
     totalDuration = x[-1] - x[0]
     currentAverage = y.mean()
     self.sd['avgBeamCurrent'] = currentAverage*1e9 # in nanoamps
