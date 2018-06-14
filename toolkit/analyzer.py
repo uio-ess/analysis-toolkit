@@ -653,7 +653,7 @@ class analyzer:
           raw_data = obj.value
           t0 = obj.attrs['t0']
           t_end = obj.attrs['t_end']
-          x = np.linspace(t0,t_end,len(y))
+          x = np.linspace(t0,t_end,len(raw_data))
           dataI = np.empty(raw_data.size, dtype=type(obj.attrs['voltage_scale']))
           np.multiply(raw_data, obj.attrs['voltage_scale'], dataI)
           np.subtract(dataI, obj.attrs['voltage_offset'], dataI)
