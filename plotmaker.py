@@ -41,7 +41,8 @@ df = pd.read_sql_query(queryString, conn)
 camPhotonsPerCount = 5.7817
 
 
-# time on x axis temperature plots
+
+# time on x axis temperature plots for spectrometer peak
 enable_this_section = True
 if enable_this_section:
   
@@ -49,7 +50,66 @@ if enable_this_section:
   doi = df.loc[~df['temperature'].isnull()]
   
   # filter out beam off data
-  doi = doi.loc[doi['avgBeamCurrent'] < 20]
+  doi = doi.loc[doi['avgBeamCurrent'] < -20]
+  
+  # filter out bad spot fits
+  # filter bad cam fits
+  doi = doi.loc[doi['camSpotAmplitude'] > 0]
+  
+  # ignore day one data
+  doi = doi.loc[doi['trigger_id'] >= 1843]
+  doi = doi.loc[doi['trigger_id'] <= 2275]
+  
+  # filter out bad ruby peak fits
+  #doi = doi.loc[~doi['aHeight'].isnull()]
+  #doi = doi.loc[~doi['bHeight'].isnull()]
+  doi = doi.loc[doi['aHeight'].astype(float) > 0]
+  doi = doi.loc[doi['bHeight'].astype(float) > 0]
+  
+  # unique samples
+  temperatureSamples = doi['sample_name'].unique()
+  
+  PperC = {}
+  PerCTemp = {}
+  for sample in temperatureSamples:
+    sampleRows = doi.loc[doi['sample_name'] == sample]
+    x = np.array(sampleRows['timestamp'].astype(float))
+    y1 = np.array(sampleRows['temperature'])
+    x = (x - x[0])/60
+    y2 = np.array(sampleRows['bHeight'].astype(float))
+    PperC[sample] = y2
+    PerCTemp[sample] = y1
+    
+    fig, ax1 = plt.subplots()
+    ax1.plot(x, y1, 'b-')
+    ax1.set_xlabel('Time [min]')
+    ax1.xaxis.grid()
+    ax1.set_title('Ruby Peak Height and Temperature Vs Time'+'|'+sample+'|'+session)
+    # Make the y-axis label, ticks and tick labels match the line color.
+    ax1.set_ylabel('Sample Temperature [$^\circ$C]', color='b')
+    #ax1.yaxis.grid(color='b')
+    ax1.tick_params('y', colors='b')
+    
+    ax2 = ax1.twinx()
+    ax2.plot(x, y2, 'r-')
+    ax2.set_ylabel('Ruby peak height [spectrometer counts]', color='r')
+    ax2.tick_params('y', colors='r')
+    ax2.yaxis.grid(color='r')
+    #ax2.grid()
+    
+    #plt.title(sample)
+    fig.tight_layout()
+
+
+# time on x axis temperature plots from camera peroformance
+enable_this_section = True
+if enable_this_section:
+  
+  # filter out non temperature data
+  doi = df.loc[~df['temperature'].isnull()]
+  
+  # filter out beam off data
+  doi = doi.loc[doi['avgBeamCurrent'] < -20]
   
   # filter out bad spot fits
   # filter bad cam fits
