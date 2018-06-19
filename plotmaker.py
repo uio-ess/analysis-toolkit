@@ -42,26 +42,28 @@ camPhotonsPerCount = 5.7817
 
 
 # time on x axis temperature plots
-enable_this_section = False
+enable_this_section = True
 if enable_this_section:
   
   # filter out non temperature data
   doi = df.loc[~df['temperature'].isnull()]
   
   # filter out beam off data
-  doi = doi.loc[doi['avgBeamCurrent'] > 20]
+  doi = doi.loc[doi['avgBeamCurrent'] < 20]
   
   # filter out bad spot fits
-  doi = doi.loc[~doi['camSpotAmplitude'].isnull()]
+  # filter bad cam fits
+  doi = doi.loc[doi['camSpotAmplitude'] > 0]
   
   # ignore day one data
-  doi = doi.loc[doi['trigger_id'] > 6000]
+  doi = doi.loc[doi['trigger_id'] >= 1843]
+  doi = doi.loc[doi['trigger_id'] <= 2275]
   
   # filter out bad ruby peak fits
   #doi = doi.loc[~doi['aHeight'].isnull()]
   #doi = doi.loc[~doi['bHeight'].isnull()]
-  doi = doi.loc[doi['aHeight'].astype(float) > 0]
-  doi = doi.loc[doi['bHeight'].astype(float) > 0]
+  #doi = doi.loc[doi['aHeight'].astype(float) > 0]
+  #doi = doi.loc[doi['bHeight'].astype(float) > 0]
   
   # unique samples
   temperatureSamples = doi['sample_name'].unique()
@@ -71,12 +73,12 @@ if enable_this_section:
   for sample in temperatureSamples:
     sampleRows = doi.loc[doi['sample_name'] == sample]
     forcedCamCharge = np.array(sampleRows['camCharge'])[:5].mean() # so that we don't get messed up by weird interactions between current measurement and heater  
-    x = np.array(sampleRows['timestamp'])
+    x = np.array(sampleRows['timestamp'].astype(float))
     y1 = np.array(sampleRows['temperature'])
     x = (x - x[0])/60
-    #y2 = np.array(sampleRows['camSpotAmplitude']) / np.array(sampleRows['camCharge'])
+    y2 = np.array(sampleRows['photonsPerProtonBlur'])
     camCharge = np.ones(len(y1)) * forcedCamCharge
-    y2 = np.array(sampleRows['camSpotAmplitude']) / camCharge
+    #y2 = np.array(sampleRows['camSpotAmplitude']) / camCharge
     PperC[sample] = y2
     PerCTemp[sample] = y1
     
@@ -92,7 +94,7 @@ if enable_this_section:
     
     ax2 = ax1.twinx()
     ax2.plot(x, y2, 'r-')
-    ax2.set_ylabel('Photons (peak) per nC', color='r')
+    ax2.set_ylabel('Photons per Proton', color='r')
     ax2.tick_params('y', colors='r')
     ax2.yaxis.grid(color='r')
     #ax2.grid()
@@ -100,42 +102,41 @@ if enable_this_section:
     #plt.title(sample)
     fig.tight_layout()
     
-    y2 = np.array(sampleRows['bCen'].astype(float)) - np.array(sampleRows['aCen'].astype(float))
-    fig, ax1 = plt.subplots()
-    ax1.plot(x, y1, 'b-')
-    ax1.set_xlabel('Time [min]')
-    ax1.xaxis.grid()
-    ax1.set_title('Ruby Peak Spacing Vs Temperature'+'|'+sample+'|'+session)
-    # Make the y-axis label, ticks and tick labels match the line color.
-    ax1.set_ylabel('Sample Temperature [$^\circ$C]', color='b')
-    #ax1.yaxis.grid(color='b')
-    ax1.tick_params('y', colors='b')
-    
-    ax2 = ax1.twinx()
-    ax2.plot(x, y2, 'r-')
-    ax2.set_ylabel('Ruby emission peak spacing [nm]', color='r')
-    ax2.tick_params('y', colors='r')
-    ax2.yaxis.grid(color='r')
-    #ax2.grid()
-    
-    #plt.title(sample)
-    fig.tight_layout()  
-
-
+    # temp vs spectro stuff
+    enable_this_section = False
+    if enable_this_section:
+      y2 = np.array(sampleRows['bCen'].astype(float)) - np.array(sampleRows['aCen'].astype(float))
+      fig, ax1 = plt.subplots()
+      ax1.plot(x, y1, 'b-')
+      ax1.set_xlabel('Time [min]')
+      ax1.xaxis.grid()
+      ax1.set_title('Ruby Peak Spacing Vs Temperature'+'|'+sample+'|'+session)
+      # Make the y-axis label, ticks and tick labels match the line color.
+      ax1.set_ylabel('Sample Temperature [$^\circ$C]', color='b')
+      #ax1.yaxis.grid(color='b')
+      ax1.tick_params('y', colors='b')
+      
+      ax2 = ax1.twinx()
+      ax2.plot(x, y2, 'r-')
+      ax2.set_ylabel('Ruby emission peak spacing [nm]', color='r')
+      ax2.tick_params('y', colors='r')
+      ax2.yaxis.grid(color='r')
+      #ax2.grid()
+      
+      #plt.title(sample)
+      fig.tight_layout()  
 
   # temp on x axis temp plots
-  plt.figure()
-  sample = 'HV1'
-  plt.plot(PerCTemp[sample],PperC[sample],label=sample)
-  sample = 'HVC1.2'
-  plt.plot(PerCTemp[sample],PperC[sample],label=sample)
-  
-  plt.xlabel('Temperature [$^\circ$C]')
-  plt.ylabel('Photons (peak) per nC')
-  plt.title('Luminescence Efficiency Vs Temperature'+'|'+session)
-  plt.tight_layout()
-  plt.legend()
-  plt.grid()
+  for sample in ['HV1', 'HVC1.2','HV10']:
+    plt.figure()
+    plt.plot(PerCTemp[sample],PperC[sample],label=sample)
+    
+    plt.xlabel('Temperature [$^\circ$C]')
+    plt.ylabel('Photons per Proton')
+    plt.title('Luminescence Efficiency Vs Temperature'+'|'+sample+'|'+session)
+    plt.tight_layout()
+    #plt.legend()
+    plt.grid()
 
 # for peak vs charge seen plots
 enable_this_section = False
