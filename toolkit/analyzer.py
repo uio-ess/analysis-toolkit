@@ -25,17 +25,6 @@ class analyzer:
   Analyzes HDF5 sample files and enters sample data into the sample database
   for the ESS proton beam imaging system
   """
-  
-  camPhotonsPerCount = 5.7817 # TODO: read all this from the data now
-  T_len = 0.95 # lens transmission
-  Fn = 2.8 # f-number
-  F = 50 # focal length
-  L = 1120 # distance to target
-  D = F / Fn
-  theta = D / 2 / L # TODO check order of operations here
-  Omega = constants.pi * theta**2
-  #CC =  Omega / T_len
-  samplePhotonsPerCamPhoton = T_len/Omega
 
   def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True):
     self.files = files
@@ -196,8 +185,10 @@ class analyzer:
   
     return img_crop  
     
-  def camAnalysis(self, camData):
-    camData = np.flipud(camData)    
+  def camAnalysis(self, camData, photons_per_count, lens_transmission, f_number, focal_length, distance_to_target):
+    camData = np.flipud(camData)
+    
+    
     if self.drawPlots:
       # for the image
       fig = plt.figure()
@@ -640,7 +631,38 @@ class analyzer:
       if 'Manta camera' in obj.parent.attrs.values():  # camera plot
         try:
           camData = obj[:]
-          self.camAnalysis(camData)
+          
+          if 'photons_per_count' in obj.parent.attrs:
+            photons_per_count = obj.parent.attrs['photons_per_count']
+          else:
+            photons_per_count = 5.7817
+            print('WARNING: using default photons_per_count value')
+          
+          if 'lens_transmission' in obj.parent.attrs:
+            lens_transmission = obj.parent.attrs['lens_transmission']
+          else:
+            lens_transmission = 0.95
+            print('WARNING: using default lens_transmission value')
+          
+          if 'f_number' in obj.parent.attrs:
+            f_number = obj.parent.attrs['f_number']
+          else:
+            f_number = 2.8
+            print('WARNING: using default f_number value')
+
+          if 'focal_length' in obj.parent.attrs:
+            focal_length = obj.parent.attrs['focal_length']
+          else:
+            focal_length = 50
+            print('WARNING: using default focal_length value')
+
+          if 'distance_to_target' in obj.parent.attrs:
+            distance_to_target = obj.parent.attrs['distance_to_target']
+          else:
+            distance_to_target = 1120
+            print('WARNING: using default distance_to_target value')
+          
+          self.camAnalysis(camData, photons_per_count, lens_transmission, f_number, focal_length, distance_to_target)
         except:
           print("Failed during camera image analysis.")
 
