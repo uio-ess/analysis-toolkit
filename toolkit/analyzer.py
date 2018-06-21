@@ -110,8 +110,8 @@ class analyzer:
     #iWants = ('sample_name','session', ...)
     iWants = ('experiment_description', 'sub_experiment', 'timestamp')
     for thingIWant in iWants:
-      if thingIWant == 'timestamp':
-        attribute = root.attrs.get('File creation  time') # TODO: make this go back to timestamp
+      if (thingIWant == 'timestamp') and ('File creation  time' in root.attrs):
+        attribute = root.attrs.get('File creation  time') # catch poorly named timestamp
       else:
         attribute = root.attrs.get(thingIWant)
       if type(attribute) is np.int64:
