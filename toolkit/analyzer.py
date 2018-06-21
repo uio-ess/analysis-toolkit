@@ -110,7 +110,10 @@ class analyzer:
     #iWants = ('sample_name','session', ...)
     iWants = ('experiment_description', 'sub_experiment', 'timestamp')
     for thingIWant in iWants:
-      attribute = root.attrs.get(thingIWant)
+      if thingIWant == 'timestamp':
+        attribute = root.attrs.get('File creation  time') # TODO: make this go back to timestamp
+      else:
+        attribute = root.attrs.get(thingIWant)
       if type(attribute) is np.int64:
         attribute = int(attribute) # hopefully nothing is mangled here...
       self.sd[thingIWant] = attribute
@@ -146,8 +149,12 @@ class analyzer:
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    camCharge = np.trapz(y,x=x)  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    camCharge = np.trapz(y,x=x) * -1  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['camCharge'] = camCharge * 1e9
+    
+    # with no corrections for sample size
+    protons = round(camCharge/constants.e)
+    self.sd['photonsPerProtonGausInf'] = protons * self.sd['camSpotVolume'] * self.samplePhotonsPerCamPhoton
     
     if 'sampleCupFraction' in self.sd:
       usefulProtons = round(camCharge/constants.e * self.sd['sampleCupFraction'])
@@ -166,7 +173,7 @@ class analyzer:
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    spectroCharge = np.trapz(y,x=x)  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    spectroCharge = np.trapz(y,x=x) * -1  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['spectroCharge'] = spectroCharge * 1e9
     
   def crop_minAreaRect(img, rect):
@@ -495,6 +502,7 @@ class analyzer:
     return g
       
   def currentAnalysis(self, x, y):
+    #y = y * -1 # make the current positive
     #y = abs(y)
     totalDuration = x[-1] - x[0]
     currentAverage = y.mean()
