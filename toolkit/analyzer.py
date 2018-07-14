@@ -128,7 +128,8 @@ class analyzer:
     print("")    
 
   def postAnalysis(self):
-    # compute the charge seen by the sample during data collection
+    """ analysis that depends on multiple data sources i.e camera and beam current data
+    """
     
     # integration range for camera
     intRange = (0, self.t_camExposure) # seconds
@@ -186,6 +187,22 @@ class analyzer:
     return img_crop  
     
   def camAnalysis(self, camData, photons_per_count, lens_transmission, f_number, focal_length, distance_to_target):
+    """ focal_length and distance_to_target must be of the same units
+    """
+    # NOTE: how valid is this math for non-point sources?
+    # see https://en.wikipedia.org/wiki/Lambert%27s_cosine_law
+    
+    aperture_diameter = focal_length / f_number
+    aperature_area = constants.pi * (aperature_diameter) ** 2
+    solid_angle = aperature_area / distance_to_target ** 2
+    
+    theta = aperture_diameter / 2 / distance_to_target # TODO check order of operations here
+    Omega = constants.pi * theta**2
+    #CC =  Omega / lens_transmission
+    
+    # for every photon collected by the camera, the sample emitted this many photons
+    self.samplePhotonsPerCamPhoton = lens_transmission/Omega  
+    
     camData = np.flipud(camData)
     
     
