@@ -352,9 +352,7 @@ class analyzer:
         rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
         BX = rB*np.cos(theta) + peakPos[0] # x values for line B
         BY = rB*np.sin(theta) + peakPos[1] # y values for line B
-        
-        #xResCam = CamData.shape[0]
-        #yResCam = CamData.shape[1]        
+              
       
         f = interpolate.RectBivariateSpline(xv, yv, camData) # linear interpolation for data surface
       
@@ -373,12 +371,12 @@ class analyzer:
         fig.suptitle('Camera|' + self.titleString, fontsize=10)
         axes[0,0].matshow(camData, cmap=plt.cm.copper)
         ax.axes.xaxis.tick_bottom()
-        #axes[0,0].imshow(camData, cmap=plt.cm.copper, 
-        #          extent=(yv.min(), yv.max(), xv.min(), xv.max()))
+
         if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
           axes[0,0].contour(y, x, fitSurface2D, 3, colors='gray')
         else:
           print('Warning: contour() bug avoided')
+        
         axes[0,0].plot(AY,AX,'r') # plot line A
         axes[0,0].plot(BY,BX,'g') # plot line B
         axes[0,0].set_title("Image Data")
@@ -400,29 +398,30 @@ class analyzer:
         axes[1,1].set_title('Green Line Cut')
         axes[1,1].set_xlabel('Distance from center of spot [pixels]')
         axes[1,1].set_ylabel('Magnitude [counts]')
+        axes[1,1].yaxis.set_label_position("right")
         axes[1,1].grid(linestyle='--')
         handles, labels = axes[1,1].get_legend_handles_labels()
-        axes[1,1].legend(handles, labels)           
+        axes[1,1].legend(handles, labels)
+        
       
         axes[0,1].axis('off')
+        axes[0,1].set_title('Fit Details')
         
         logMessages = io.StringIO()
-        print("Green Line Cut R^2 =", r2, file=logMessages)
-        peak = amplitude+background
-        print("Peak =", peak, file=logMessages)
-        print("====Fit Parameters====", file=logMessages)
-        print("Amplitude =", amplitude, file=logMessages)
-        print("Center X =", peakPos[0], file=logMessages)
-        print("Center Y =", peakPos[1], file=logMessages)
-        print("Sigma X =", sigma[0], file=logMessages)
-        print("Sigma Y =", sigma[1], file=logMessages)
-        print("Rotation (in rad) =", theta, file=logMessages)
-        print("Baseline =", background, file=logMessages)
-        print("", file=logMessages)
+        print("Green Line Cut R^2 = {:0.8f}".format(r2), file=logMessages)
+        print("Peak = {:+011.5f} [counts]\n".format(amplitude+background), file=logMessages)
+        print("     ====Fit Parameters====", file=logMessages)
+        print("Amplitude = {:+011.5f} [counts]".format(amplitude), file=logMessages)
+        print("Center X  = {:+011.5f} [pixels]".format(peakPos[1]), file=logMessages)
+        print("Center Y  = {:+011.5f} [pixels]".format(peakPos[0]), file=logMessages)
+        print("Sigma X   = {:+011.5f} [pixels]".format(sigma[1]), file=logMessages)
+        print("Sigma Y   = {:+011.5f} [pixels]".format(sigma[0]), file=logMessages)
+        print("Rotation  = {:+011.5f} [radians]".format(theta), file=logMessages)
+        print("Baseline  = {:+011.5f} [counts]".format(background), file=logMessages)
         logMessages.seek(0)
         messages = logMessages.read()      
         
-        axes[0,1].text(0,0,messages)
+        axes[0,1].text(0,0,messages, family='monospace')
 
   # calculates a 2d gaussian's height, x, y position and x and y sigma values from surface height data
   def moments(data):
