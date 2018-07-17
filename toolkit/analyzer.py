@@ -203,6 +203,9 @@ class analyzer:
     # then for every photon seen by the camera, the sample emitted this many photons
     self.samplePhotonsPerCamPhoton = assumed_emission_steradians / solid_angle / lens_transmission
     
+    # fix camera data orientation
+    camData = np.flipud(camData)
+    
     if self.drawPlots:
       # for the image
       fig = plt.figure()
@@ -251,14 +254,6 @@ class analyzer:
     cameraSaturated = True
     if nSatPix < nPix*saturation_percent_of_pixels / 100:
       cameraSaturated = False
-      #sampleROIXRes = sampleROIBlur.shape[0]
-      #sampleROIYRes = sampleROIBlur.shape[1]
-      #sxv = np.linspace(0, sampleROIXRes-1, sampleROIXRes)
-      #syv = np.linspace(0, sampleROIYRes-1, sampleROIYRes)
-      #sxm, sym = np.meshgrid(sxv, syv,indexing='ij')
-      #sampleROISurf = interpolate.RectBivariateSpline(sxv,syv,sampleROIBlur * photons_per_count)
-      #self.sd['blurVolume'] = sampleROISurf.integral(0, sampleROIXRes-1, 0, sampleROIYRes-1)
-      #self.sd['blurAmplitude'] = sampleROIBlur.max() * photons_per_count
     else:
       print("WARNING: Image saturation detected. >{:}% of pixels are within {:}% of their max value".format(saturation_percent_of_max, saturation_percent_of_pixels))
     
@@ -275,21 +270,19 @@ class analyzer:
       thresh_blur = cv2.medianBlur(src=thresh_copy, ksize=15) # big filter here    
       ret,thresh = cv2.threshold(thresh_blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
       nz = cv2.findNonZero(thresh) # thresh --> bool
-      mar = cv2.minAreaRect(nz) # find our substrate
-      #subsX = mar[1][0]
-      #subsY = mar[1][1]
+      mar = cv2.minAreaRect(nz) # find our substrate, minimum area rectangle = ((center_x,center_y),(width,height), angle)
       
-      # caculate the substrate boundary box
+      # caculate the ROI
       boxScaleFactor = 0.70 # reduce ROI by this factor to prevent substrate edge effects
-      smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]), mar[2]) # calculate new ROI
+      smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]), mar[2]) # scale box width and height
       box = cv2.boxPoints(smaller).astype(np.int0) # find new ROI corners
       
       # show user the new ROI
       whereIsROI = cv2.drawContours(thresh_blur, [box], 0, 127, 3)
       if self.drawPlots:
         # for the ROI image
-        fig = plt.figure()
-        ax = plt.imshow(np.flipud(whereIsROI), cmap='gray', vmin = 0, vmax = 255)
+        fig = plt.figure()        
+        ax = plt.matshow(whereIsROI,fignum=fig.number,origin='lower', cmap='gray', vmin = 0, vmax = 255)
         ax.axes.xaxis.tick_bottom()
         plt.title('Camera ROI|' + self.titleString)
       
@@ -299,7 +292,7 @@ class analyzer:
       substrateAreaFactor = 0.8    
       if nPix * substrateAreaFactor > approxSubstrateArea: # test if the ROI is huge
         cantFindSubstrate = False
-        ROI = np.flipud(analyzer.crop_minAreaRect(bg0_blur,smaller))  # now crop and rotate the blurred camera data
+        ROI = analyzer.crop_minAreaRect(bg0_blur,smaller)  # now crop and rotate the blurred camera data
         ROIxRes = ROI.shape[0]
         ROIyRes = ROI.shape[1]        
       else:
@@ -327,8 +320,7 @@ class analyzer:
       # take an average of the points around the peak to find amplitude
       xc = round(guesses['xo'].value)
       yc = round(guesses['yo'].value)
-      amplitudeWin = ROI[xc,yc]
-      guesses['amplitude'].value = amplitudeWin.mean()  # TODO: check why this is the mean
+      guesses['amplitude'].value = ROI[xc,yc]  # TODO: check why this is the mean
       
       # Create x and y grid
       xv = np.linspace(0, ROIxRes-1, ROIxRes)
@@ -610,13 +602,19 @@ class analyzer:
         print('\t{:}--> {:}'.format(key,val))
         val = str(val)  # make sure we're comparing two str objects below
         if val == 'Manta camera':
-          self.t_camExposure = obj.attrs['acquire_duration']  # TODO: change this to acquire_duration
+          if 'Capture Time' in obj.attrs: # TODO: remove this old attr name
+            self.t_camExposure = obj.attrs['Capture Time'] # TODO: remove this old attr name
+          if 'acquire_duration' in obj.attrs:
+            self.t_camExposure = obj.attrs['acquire_duration']         
           self.sd['t_camExposure'] = self.t_camExposure
         elif val == 'Thorlabs spectrometer':
-          self.t_spectrumExposure = obj.attrs['acquire_duration']  # TODO: change this to acquire_duration
+          if 'Capture Time' in obj.attrs: # TODO: remove this old attr name
+            self.t_camExposure = obj.attrs['Capture Time'] # TODO: remove this old attr name
+          if 'acquire_duration' in obj.attrs:
+            self.t_spectrumExposure = obj.attrs['acquire_duration']
           self.sd['t_spectrumExposure'] = self.t_spectrumExposure
-        elif val == 'LairdTech temperature regulator': # legacy
-          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV'] # legacy
+        elif val == 'LairdTech temperature regulator': # TODO: remove this old equipment
+          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV'] # TODO: remove this old equipment
         elif val == 'm-ethercat with EL3318':
           self.sd['temperature'] = obj.attrs['temperature']
 

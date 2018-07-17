@@ -37,10 +37,6 @@ queryString = "select * from {:};".format(tableName)
 
 df = pd.read_sql_query(queryString, conn)
 
-# TODO: read from the files
-camPhotonsPerCount = 5.7817
-
-
 
 # time on x axis temperature plots for spectrometer peak
 enable_this_section = True
@@ -101,7 +97,7 @@ if enable_this_section:
     fig.tight_layout()
 
 
-# time on x axis temperature plots from camera peroformance
+# time on x axis temperature plots from camera
 enable_this_section = True
 if enable_this_section:
   
