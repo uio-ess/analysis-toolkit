@@ -148,7 +148,7 @@ class analyzer:
     protons = round(camCharge/constants.e)
     
     if 'gaussianVolume' in self.sd:
-      # gaus fit takes gaussian out to infinity ans thus should not be impacted by sample size
+      # gaus fit takes gaussian out to infinity and thus should not be impacted by sample size
       self.sd['photonsPerProtonGaus'] = self.sd['gaussianVolume'] * self.samplePhotonsPerCamPhoton / protons
       print("Photons per proton from gaussian fit: {:.0f}".format(self.sd['photonsPerProtonGaus']))
       
