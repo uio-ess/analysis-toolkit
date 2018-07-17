@@ -370,15 +370,19 @@ class analyzer:
         fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
         fig.suptitle('Camera|' + self.titleString, fontsize=10)
         axes[0,0].matshow(camData, cmap=plt.cm.copper)
+        axes[0,0].contour(y, x, mask, 3, colors='yellow', alpha=0.2)
+        #thresh
+        #whereIsROI2 = cv2.drawContours(camData, [box], 0, 50, 3)
+        #axes[0,0].matshow(whereIsROI2, cmap=plt.cm.copper)  # 
         ax.axes.xaxis.tick_bottom()
 
         if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
-          axes[0,0].contour(y, x, fitSurface2D, 3, colors='gray')
+          axes[0,0].contour(y, x, fitSurface2D, 3, colors='gray', alpha=0.5)
         else:
           print('Warning: contour() bug avoided')
         
-        axes[0,0].plot(AY,AX,'r') # plot line A
-        axes[0,0].plot(BY,BX,'g') # plot line B
+        axes[0,0].plot(AY,AX,'r', alpha=0.5) # plot line A
+        axes[0,0].plot(BY,BX,'g', alpha=0.5) # plot line B
         axes[0,0].set_title("Image Data")
         axes[0,0].set_ylim([xv.max(), xv.min()])
         axes[0,0].set_xlim([yv.min(), yv.max()])
