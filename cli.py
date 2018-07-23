@@ -2,7 +2,7 @@
 # written by grey@christoforo.net
 
 # note: to increase the open file limit under linux use: ulimit -n 2048
-# note: select files by file number: ./cli.py --database ./db.db $(seq -f "./%016g-*.h5" 1843 1845)
+# note: select files by file number: ./cli.py --database ./db.db $(find $(seq -f "./%016g-*.h5" 1843 1845) 2> /dev/null)
 
 import argparse
 import os

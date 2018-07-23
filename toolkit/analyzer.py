@@ -660,13 +660,21 @@ class analyzer:
       elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('ps4264py' in obj.name) and ('y_data' in obj.name):
         try:
           raw_data = obj.value
-          t0 = obj.attrs['t0']
-          t_end = obj.attrs['t_end']
-          x = np.linspace(t0,t_end,len(raw_data))
-          dataI = np.empty(raw_data.size, dtype=type(obj.attrs['voltage_scale']))
-          np.multiply(raw_data, obj.attrs['voltage_scale'], dataI)
-          np.subtract(dataI, obj.attrs['voltage_offset'], dataI)
-          np.multiply(dataI, obj.attrs['current_scale'], dataI)          
-          self.currentAnalysis(x,dataI)
+          if 'voltage_scale' in obj.attrs:
+            t0 = obj.attrs['t0']
+            t_end = obj.attrs['t_end']
+            x = np.linspace(t0,t_end,len(raw_data))
+            dataI = np.empty(raw_data.size, dtype=type(obj.attrs['voltage_scale']))
+            np.multiply(raw_data, obj.attrs['voltage_scale'], dataI)
+            np.subtract(dataI, obj.attrs['voltage_offset'], dataI)
+            np.multiply(dataI, obj.attrs['current_scale'], dataI)          
+            self.currentAnalysis(x,dataI)
+          else: # TODO: remove old format current analysis
+            y = np.array(obj.value)
+            t0 = obj.attrs['t0']
+            t_end = obj.attrs['t_end']
+            x = np.linspace(t0,t_end,len(y))
+            self.currentAnalysis(x,y)
+          
         except:
           print("Failed during current analysis.")

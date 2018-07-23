@@ -39,7 +39,7 @@ df = pd.read_sql_query(queryString, conn)
 
 
 # time on x axis temperature plots for spectrometer peak
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   
   # filter out non temperature data
@@ -98,7 +98,7 @@ if enable_this_section:
 
 
 # time on x axis temperature plots from camera
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   
   # filter out non temperature data
@@ -341,7 +341,7 @@ if enable_this_section:
 
 
 # photon emission vs proton flux
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   # filter out beam off data
   doi = df.loc[df['avgBeamCurrent']>20]
@@ -415,7 +415,7 @@ if enable_this_section:
 
 
 # light scan boxplot
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   # only fixed exposure light scans
   doi = df.loc[df['trigger_id'] >= 1481]
@@ -451,10 +451,10 @@ if enable_this_section:
 enable_this_section = True
 if enable_this_section:
   # filter out beam off data
-  doi = df.loc[df['avgBeamCurrent']>20]
+  doi = df.loc[df['avgBeamCurrent'] < 20]
   
   # filter bad cam fits
-  doi = doi.loc[doi['camSpotAmplitude'] > 0]
+  doi = doi.loc[doi['gaussianAmplitude'] > 0]
   
   # filter setup runs
   doi = doi.loc[doi['trigger_id'] >= 1143] # ignore setup data
