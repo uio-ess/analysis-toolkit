@@ -28,28 +28,32 @@ class analyzer:
   
   samplePhotonsPerCamPhoton = None
 
-  def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True):
-    self.files = files
+  def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True, verbose = False):
+    self.full_paths = []
     self.drawPlots = drawPlots
     self.fitSpot = fitSpot
+    self.verbose = verbose
     self.db = dataset.connect('sqlite:///'+database)
     self.t = None  # the database table we'll be using here
     self.freezeObj = freezeObj
     
     self.sd = {}  # sample dictionary
     
+    # close all the files and store their names. because we'll open them later with h5py
+    for f in files:
+      f.close()
+      self.full_paths = self.full_paths + [f.name]
+    
   def processFiles(self):
     # loop through each file in the input
-    for f in self.files:
-      self.sd = {}  # initialize sample dictionary
+    for full_path in self.full_paths:
+      file_name = os.path.basename(full_path)
+      print('Processing {:}...'.format(full_path))
+      self.verbose and analyzer.printContents(full_path)
       try:
-        f.close()
-        fullPath = f.name
-        fileName = os.path.basename(f.name)
-        print('Processing', fullPath, '...')        
-        self.processOneFile(f)
+        self.processOneFile(full_path)
       except:
-        print("WARNING: Failed to process {:}".format(f.name))
+        print("WARNING: Failed to process {:}".format(file_name))
       self.drawPlots and plt.show()
     print("Done processing all files.")
     
@@ -68,25 +72,19 @@ class analyzer:
       print('Sooo cold! Data frozen to {:}'.format(self.freezeObj.name))
       self.freezeObj.close()
       
-  def processOneFile(self, f):
-    f = h5py.File(f.name, 'r')
-  
-    root = f.get('/')
-    print('/')
-    
-    session = root.attrs.get('session')
+  def fetchRootAttributes(self, root):
+    """read root attributes from the file and create a database table and line in the table that we'll populate later"""
+    session = root.attrs['session']
     self.sd['session'] = session
     safeSession = re.sub(r'\W+', '', session) # allow this to become a table name
     self.t = self.db.create_table(safeSession, primary_id='int_hash', primary_type=self.db.types.bigint)
-    #self.t = self.db[str(hash(session))]
-    # self.t.drop()
     
     # form row hash/title string out of sample name, trigger count and session
     attr = 'sample_name'
-    self.sd[attr] = root.attrs.get(attr)
+    self.sd[attr] = root.attrs[attr]
     
     attr = 'trigger_id'
-    self.sd[attr] = int(root.attrs.get(attr)) # hopefully nothing gets mangled by the int cast here...
+    self.sd[attr] = int(root.attrs[attr]) # hopefully nothing gets mangled by the int cast here...
     
     self.titleString = str(self.sd['trigger_id']) + '|' +\
       self.sd['sample_name'] + '|' + self.sd['session']    
@@ -98,25 +96,38 @@ class analyzer:
     self.t.upsert(self.sd, ['int_hash'], ensure=True)
 
     # other things i'm interested in here
-    #iWants = ('sample_name','session', ...)
     iWants = ('experiment_description', 'sub_experiment', 'timestamp')
     for thingIWant in iWants:
       if (thingIWant == 'timestamp') and ('File creation  time' in root.attrs):
-        attribute = root.attrs.get('File creation  time') # catch poorly named timestamp
+        attribute = root.attrs['File creation  time'] # catch poorly named timestamp TODO: remove this old attribute name
       else:
-        attribute = root.attrs.get(thingIWant)
+        attribute = root.attrs[thingIWant]
       if type(attribute) is np.int64:
         attribute = int(attribute) # hopefully nothing is mangled here...
       self.sd[thingIWant] = attribute
+      
+  def processOneFile(self, full_path):
+    """called to handle processing of the data in a single file"""
+    f = h5py.File(full_path, 'r')  # open to file for reading
+    
+    self.sd = {}  # initialize sample dictionary, here's where we store stuff we're gonna write to the database
+    
+    root_group = f['/']
+    self.fetchRootAttributes(root_group)
 
-    # print top level attributes
-    for key, val in root.attrs.items():
-      print('\t{:}--> {:}'.format(key,val))    
+    cam_group = f['/data/images/CAM1']
+    self.camAnalysis(cam_group)
+
+    spect_group = f['/data/spectra/CCS1']
+    self.spectAnalysis(spect_group)
+
+    current_group = f['/data/oscope/ps4264py']
+    self.currentAnalysis(current_group)
+
+    # record temperature
+    self.sd['temperature'] = f['/data/temperature/ECAT'].attrs['temperature']
     
-    # walk through the HDF5 file here, in no particular order...
-    f.visititems(self.visitor)
-    
-    # now we'll do some analysis that had to wait until we'd read the entire file
+    # now we'll do some analysis that had to wait until we'd done the above analysis
     try:
       self.postAnalysis()
     except:
@@ -124,10 +135,35 @@ class analyzer:
     
     # store what we've learned in our database
     self.t.upsert(self.sd, ['int_hash'], ensure=True)
-    #self.t.insert(self.sd, ensure=True)
     
-    print("")
-    print("")    
+    print("\n")
+    
+  def printContents(full_path):
+    """ prints the contents of the file to the terminal
+    """
+    f = h5py.File(full_path, 'r')
+    root = f.get('/')
+    #print('/')
+
+    # print top level attributes
+    for key, val in root.attrs.items():
+      print('/{:}--> {:}'.format(key,val))
+    
+    def printVisitor(name, obj):
+      """prints out what it visits in an hdf5 file"""
+      if type(obj) is h5py._hl.dataset.Dataset:
+        print_name = "\u001b[07m{:}\u001b[0m".format(obj.name)  # highlight datasets with inversted colors
+        print("{:}--> DATASET with shape {:} of {:}".format(print_name, obj.shape, obj.dtype))
+      else:
+        print_name = obj.name
+
+      for key, val in obj.attrs.items():
+        print('{:}/{:}--> {:}'.format(print_name, key, val))
+    
+    # walk through the HDF5 file here, and print out what we find...
+    f.visititems(printVisitor)
+    
+    print('\n')
 
   def postAnalysis(self):
     """ analysis that depends on multiple data sources i.e camera and beam current data
@@ -141,9 +177,8 @@ class analyzer:
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    camCharge = np.trapz(y,x=x) * -1  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    camCharge = np.trapz(y, x=x) * -1  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['camCharge'] = camCharge * 1e9
-    
     
     protons = round(camCharge/constants.e)
     
@@ -165,12 +200,51 @@ class analyzer:
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    spectroCharge = np.trapz(y,x=x) * -1  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    spectroCharge = np.trapz(y, x=x) * -1  # accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['spectroCharge'] = spectroCharge * 1e9
     
-  def camAnalysis(self, camData, photons_per_count, lens_transmission, f_number, focal_length, distance_to_target):
-    """ focal_length and distance_to_target must be of the same units
+  def camAnalysis(self, cam_group):
+    """ fetches and analyzes camera data
     """
+    
+    if 'Capture Time' in cam_group.attrs: # TODO: remove this old attr name
+      self.t_camExposure = cam_group.attrs['Capture Time'] # TODO: remove this old attr name
+    if 'acquire_duration' in cam_group.attrs:
+      self.t_camExposure = cam_group.attrs['acquire_duration']
+    self.sd['t_camExposure'] = self.t_camExposure
+    
+    camData = cam_group['data'][:]
+    
+    if 'photons_per_count' in cam_group.attrs:
+      photons_per_count = cam_group.attrs['photons_per_count']
+    else:
+      photons_per_count = 5.7817
+      print('WARNING: using default photons_per_count value')
+    
+    if 'lens_transmission' in cam_group.attrs:
+      lens_transmission = cam_group.attrs['lens_transmission']
+    else:
+      lens_transmission = 0.95
+      print('WARNING: using default lens_transmission value')
+    
+    if 'f_number' in cam_group.attrs:
+      f_number = cam_group.attrs['f_number']
+    else:
+      f_number = 2.8
+      print('WARNING: using default f_number value')
+
+    if 'focal_length' in cam_group.attrs:
+      focal_length = cam_group.attrs['focal_length']
+    else:
+      focal_length = 50
+      print('WARNING: using default focal_length value')
+
+    if 'distance_to_target' in cam_group.attrs:
+      distance_to_target = cam_group.attrs['distance_to_target']
+    else:
+      distance_to_target = 1120
+      print('WARNING: using default distance_to_target value')    
+    
     # NOTE: how valid is this math for non-point sources?
     # see https://en.wikipedia.org/wiki/Lambert%27s_cosine_law
     
@@ -465,7 +539,23 @@ class analyzer:
     #return g.ravel()
     return g
       
-  def currentAnalysis(self, x, y):
+  def currentAnalysis(self, current_group):
+    
+    raw_data = current_group['y_data'][:]
+    if 'voltage_scale' in current_group['y_data'].attrs:
+      t0 = current_group['y_data'].attrs['t0']
+      t_end = current_group['y_data'].attrs['t_end']
+      x = np.linspace(t0,t_end,len(raw_data))
+      y = np.empty(raw_data.size, dtype=type(current_group['y_data'].attrs['voltage_scale']))
+      np.multiply(raw_data, current_group['y_data'].attrs['voltage_scale'], y)
+      np.subtract(y, current_group['y_data'].attrs['voltage_offset'], y)
+      np.multiply(y, current_group['y_data'].attrs['current_scale'], y)          
+    else: # TODO: remove old format current analysis
+      y = raw_data
+      t0 = current_group['y_data'].attrs['t0']
+      t_end = current_group['y_data'].attrs['t_end']
+      x = np.linspace(t0,t_end,len(y))
+    
     #y = y * -1 # make the current positive
     #y = abs(y)
     totalDuration = x[-1] - x[0]
@@ -501,7 +591,21 @@ class analyzer:
       #plt.xlim(xmin=0)
       #plt.grid()      
       
-  def spectAnalysis(self, xPlot, yPlot, y_scale):
+  def spectAnalysis(self, spect_group):
+    """analyze the spectrometer data"""
+    
+    if 'Capture Time' in spect_group.attrs: # TODO: remove this old attr name
+      self.t_spectrumExposure = spect_group.attrs['Capture Time'] # TODO: remove this old attr name
+    if 'acquire_duration' in spect_group.attrs:
+      self.t_spectrumExposure = spect_group.attrs['acquire_duration']
+    self.sd['t_spectrumExposure'] = self.t_spectrumExposure    
+    
+    xPlot = spect_group['x_values'][:]
+    y_scale = spect_group['y_scale'][:]
+    xlen = len(xPlot)
+    
+    yPlot = spect_group['y_values'][0:xlen]
+    
     #y = y/y_scale # TODO: check scaling
     
     # wavelength range overwhich we'll fit
@@ -583,98 +687,4 @@ class analyzer:
       self.sd['bCen'] = None      
       print("WARNING: Bad ruby peak fit.")
     
-  def visitor(self, name, obj):
-    print(name)
-    for key, val in obj.attrs.items():
-        print('\t{:}--> {:}'.format(key,val))
-        val = str(val)  # make sure we're comparing two str objects below
-        if val == 'Manta camera':
-          if 'Capture Time' in obj.attrs: # TODO: remove this old attr name
-            self.t_camExposure = obj.attrs['Capture Time'] # TODO: remove this old attr name
-          if 'acquire_duration' in obj.attrs:
-            self.t_camExposure = obj.attrs['acquire_duration']         
-          self.sd['t_camExposure'] = self.t_camExposure
-        elif val == 'Thorlabs spectrometer':
-          if 'Capture Time' in obj.attrs: # TODO: remove this old attr name
-            self.t_camExposure = obj.attrs['Capture Time'] # TODO: remove this old attr name
-          if 'acquire_duration' in obj.attrs:
-            self.t_spectrumExposure = obj.attrs['acquire_duration']
-          self.sd['t_spectrumExposure'] = self.t_spectrumExposure
-        elif val == 'LairdTech temperature regulator': # TODO: remove this old equipment
-          self.sd['temperature'] = obj.attrs['LT59:Temp1_RBV'] # TODO: remove this old equipment
-        elif val == 'm-ethercat with EL3318':
-          self.sd['temperature'] = obj.attrs['temperature']
-
-    if type(obj) is h5py._hl.dataset.Dataset:
-      print(obj.name+' <-- dataset')
-      if 'Manta camera' in obj.parent.attrs.values():  # camera plot
-        try:
-          camData = obj[:]
-          
-          if 'photons_per_count' in obj.parent.attrs:
-            photons_per_count = obj.parent.attrs['photons_per_count']
-          else:
-            photons_per_count = 5.7817
-            print('WARNING: using default photons_per_count value')
-          
-          if 'lens_transmission' in obj.parent.attrs:
-            lens_transmission = obj.parent.attrs['lens_transmission']
-          else:
-            lens_transmission = 0.95
-            print('WARNING: using default lens_transmission value')
-          
-          if 'f_number' in obj.parent.attrs:
-            f_number = obj.parent.attrs['f_number']
-          else:
-            f_number = 2.8
-            print('WARNING: using default f_number value')
-
-          if 'focal_length' in obj.parent.attrs:
-            focal_length = obj.parent.attrs['focal_length']
-          else:
-            focal_length = 50
-            print('WARNING: using default focal_length value')
-
-          if 'distance_to_target' in obj.parent.attrs:
-            distance_to_target = obj.parent.attrs['distance_to_target']
-          else:
-            distance_to_target = 1120
-            print('WARNING: using default distance_to_target value')
-          
-          self.camAnalysis(camData, photons_per_count, lens_transmission, f_number, focal_length, distance_to_target)
-        except:
-          print("Failed during camera image analysis.")
-
-      elif ('Thorlabs spectrometer' in obj.parent.attrs.values()) and ('spectra' in obj.name) and ('y_values' in obj.name):  # spectrometer plot
-        try:
-          parent = obj.parent
-          xPlot = parent.get('x_values')[:]
-          xlen = len(xPlot)
-          yPlot = parent.get('y_values')[0:xlen]  # TODO doubcle check this length
-          y_scale = parent.get('y_scale')[0:xlen]
-        
-          self.spectAnalysis(xPlot, yPlot, y_scale)
-        except:
-          print("Failed during spectrum analysis.")
-          
-      elif ('PicoScope 4264, python' in obj.parent.attrs.values()) and ('ps4264py' in obj.name) and ('y_data' in obj.name):
-        try:
-          raw_data = obj.value
-          if 'voltage_scale' in obj.attrs:
-            t0 = obj.attrs['t0']
-            t_end = obj.attrs['t_end']
-            x = np.linspace(t0,t_end,len(raw_data))
-            dataI = np.empty(raw_data.size, dtype=type(obj.attrs['voltage_scale']))
-            np.multiply(raw_data, obj.attrs['voltage_scale'], dataI)
-            np.subtract(dataI, obj.attrs['voltage_offset'], dataI)
-            np.multiply(dataI, obj.attrs['current_scale'], dataI)          
-            self.currentAnalysis(x,dataI)
-          else: # TODO: remove old format current analysis
-            y = np.array(obj.value)
-            t0 = obj.attrs['t0']
-            t_end = obj.attrs['t_end']
-            x = np.linspace(t0,t_end,len(y))
-            self.currentAnalysis(x,y)
-          
-        except:
-          print("Failed during current analysis.")
+  

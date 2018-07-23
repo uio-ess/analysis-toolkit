@@ -29,16 +29,6 @@ if pArgs.database != ':memory:':
     print("Error: Database file name must end in .db")
     exit(1)
 
-#========= start print override stuff =========
-import builtins as __builtin__
-systemPrint = __builtin__.print
-def print(*args, **kwargs): # overload the print() function
-  if pArgs.verbose:
-    return systemPrint(*args, **kwargs) # now do the print for real
-  else:
-    return  # or not
-__builtin__.print = print
-#========= end print override stuff =========
+a = analyzer(files = pArgs.input, verbose=pArgs.verbose, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj, fitSpot = pArgs.fitSpot)
 
-a = analyzer(files = pArgs.input, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj, fitSpot = pArgs.fitSpot)
 a.processFiles()
