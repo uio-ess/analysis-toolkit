@@ -106,6 +106,9 @@ class analyzer:
         attribute = int(attribute) # hopefully nothing is mangled here...
       self.sd[thingIWant] = attribute
       
+    attr = 'nominal_beam_current'
+    self.sd[attr] = root.attrs[attr] * 1e9
+    
   def processOneFile(self, full_path):
     """called to handle processing of the data in a single file"""
     f = h5py.File(full_path, 'r')  # open to file for reading
@@ -179,6 +182,7 @@ class analyzer:
     
     camCharge = np.trapz(y, x=x) * -1  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
     self.sd['camCharge'] = camCharge * 1e9
+    print('Average current during camera exposure ({:}[ms]): {:}[nA]'.format(self.t_camExposure*1000,y.mean()*1e9))
     
     protons = round(camCharge/constants.e)
     
@@ -427,7 +431,6 @@ class analyzer:
         BX = rB*np.cos(theta) + peakPos[0] # x values for line B
         BY = rB*np.sin(theta) + peakPos[1] # y values for line B
               
-      
         f = interpolate.RectBivariateSpline(xv, yv, camData) # linear interpolation for data surface
       
         lineAData = f.ev(AX,AY)
@@ -561,6 +564,7 @@ class analyzer:
     totalDuration = x[-1] - x[0]
     currentAverage = y.mean()
     self.sd['avgBeamCurrent'] = currentAverage*1e9 # in nanoamps
+    
     print("Current Average:",currentAverage*1e9,"[nA]")
     
     # store these away for postAnalysis()

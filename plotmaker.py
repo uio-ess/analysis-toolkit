@@ -98,7 +98,7 @@ if enable_this_section:
 
 
 # time on x axis temperature plots from camera
-enable_this_section = False
+enable_this_section = True
 if enable_this_section:
   
   # filter out non temperature data
@@ -109,11 +109,11 @@ if enable_this_section:
   
   # filter out bad spot fits
   # filter bad cam fits
-  doi = doi.loc[doi['camSpotAmplitude'] > 0]
+  doi = doi.loc[doi['gaussianAmplitude'] > 0]
   
   # ignore day one data
-  doi = doi.loc[doi['trigger_id'] >= 1843]
-  doi = doi.loc[doi['trigger_id'] <= 2275]
+  doi = doi.loc[doi['trigger_id'] >= 4478]
+  doi = doi.loc[doi['trigger_id'] <= 5602]
   
   # filter out bad ruby peak fits
   #doi = doi.loc[~doi['aHeight'].isnull()]
@@ -132,8 +132,8 @@ if enable_this_section:
     x = np.array(sampleRows['timestamp'].astype(float))
     y1 = np.array(sampleRows['temperature'])
     x = (x - x[0])/60
-    y2 = np.array(sampleRows['photonsPerProtonBlur'])
-    camCharge = np.ones(len(y1)) * forcedCamCharge
+    y2 = np.array(sampleRows['photonsPerProtonGaus'])
+    #camCharge = np.ones(len(y1)) * forcedCamCharge
     #y2 = np.array(sampleRows['camSpotAmplitude']) / camCharge
     PperC[sample] = y2
     PerCTemp[sample] = y1
@@ -183,7 +183,8 @@ if enable_this_section:
       fig.tight_layout()  
 
   # temp on x axis temp plots
-  for sample in ['HV1', 'HVC1.2','HV10']:
+  #for sample in ['HV1', 'HVC1.2','HV10']:
+  for sample in ['HV1','SNS']:
     plt.figure()
     plt.plot(PerCTemp[sample],PperC[sample],label=sample)
     
@@ -448,7 +449,7 @@ if enable_this_section:
 
 
 # PperP boxplot
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   # filter out beam off data
   doi = df.loc[df['avgBeamCurrent'] < 20]
