@@ -118,17 +118,27 @@ class analyzer:
     root_group = f['/']
     self.fetchRootAttributes(root_group)
 
-    cam_group = f['/data/images/CAM1']
-    self.camAnalysis(cam_group)
+    if 'images/CAM1' in f['/data']:
+      cam_group = f['/data/images/CAM1']
+      self.camAnalysis(cam_group)
+    else:
+      print('WARNING: Did not find camera data')      
 
-    spect_group = f['/data/spectra/CCS1']
-    self.spectAnalysis(spect_group)
+    if 'spectra/CCS1' in f['/data']:
+      spect_group = f['/data/spectra/CCS1']
+      self.spectAnalysis(spect_group)
+    else:
+      print('WARNING: Did not find spectrometer data')
 
-    current_group = f['/data/oscope/ps4264py']
-    self.currentAnalysis(current_group)
+    if 'oscope/ps4264py' in f['/data']:
+      current_group = f['/data/oscope/ps4264py']
+      self.currentAnalysis(current_group)
+    else:
+      print('WARNING: Did not find oscilloscope data for current measurement')
 
     # record temperature
-    self.sd['temperature'] = f['/data/temperature/ECAT'].attrs['temperature']
+    if 'temperature/ECAT' in f['/data']:
+      self.sd['temperature'] = f['/data/temperature/ECAT'].attrs['temperature']
     
     # now we'll do some analysis that had to wait until we'd done the above analysis
     try:
