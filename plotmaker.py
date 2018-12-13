@@ -14,8 +14,8 @@ from scipy import constants
 from pathlib import Path
 home = str(Path.home())
 
-db_name = 'JUN_18_OCL.db'
-session = "JUN '18 OCL" # TODO: read this from the files
+db_name = 'ocl_dec.db'
+session = "DEC '18 OCL" # TODO: read this from the files
 fullpath = home + '/' + db_name 
 
 
@@ -98,7 +98,7 @@ if enable_this_section:
 
 
 # time on x axis temperature plots from camera
-enable_this_section = True
+enable_this_section = False
 if enable_this_section:
   
   # filter out non temperature data
@@ -340,29 +340,76 @@ if enable_this_section:
   plt.legend()
   plt.grid()
 
-
-# photon emission vs proton flux
-enable_this_section = False
+# PperP boxplot
+enable_this_section = True
 if enable_this_section:
   # filter out beam off data
-  doi = df.loc[df['avgBeamCurrent']>20]
+  doi = df.loc[df['avgBeamCurrent'] < -2]
   
   # filter bad cam fits
-  doi = doi.loc[doi['camSpotAmplitude'] > 0]
+  doi = doi.loc[doi['gaussianAmplitude'] > 0]
   
-  # filter setup runs
-  doi = doi.loc[doi['trigger_id'] >= 1143] # ignore setup data
-  doi = doi.loc[doi['trigger_id'] <= 1343] # ignore setup data
+  # ignore chromox data
+  doi = doi.loc[doi['sample_name'] != 'DARK_NOBEAM']
+  doi = doi.loc[doi['sample_name'] != 'DARK_BEAM']
   
-  # TODO: read these from the files
-  samplePhotonsPerCamPhoton = 5326.5557712833215
+  # filter shit data
+  # 6550 to 7177
+  maskA = doi['trigger_id'] > 9450 #only 11 and 16
+  maskB = doi['trigger_id'] < 9549  #only 11 and 16
+  doi = doi.loc[maskA & maskB] # ignore shit data
+  #doi = doi.loc[doi['trigger_id'] > 9118] # only latest
+  
+  samples = doi['sample_name'].unique()
+  trigger = {}
+  pPerP = []
+  fig, ax = plt.subplots()
+  for sample in samples:
+    sampleRow = doi.loc[doi['sample_name'] == sample]
+    pPerP.append(np.array(sampleRow['photonsPerProtonGaus']))
+  
+  ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
+  ax.yaxis.grid()
+  for i in range(len(samples)):
+    y = pPerP[i]
+    x = np.random.normal(1+i, 0.04, size=len(y))
+    ax.plot(x, y, 'm.', alpha=0.1)
+  #plt.xlabel('Trigger Number')
+  ax.set_ylabel('Photons per Proton')
+  ax.set_title(session)
+  fig.tight_layout()
+
+
+# photon emission vs proton flux
+enable_this_section = True
+if enable_this_section:
+  # filter out beam off data
+  doi = df.loc[df['avgBeamCurrent'] < -2]
+  
+  # filter bad cam fits
+  doi = doi.loc[doi['gaussianAmplitude'] > 0]
+  
+  # ignore chromox data
+  doi = doi.loc[doi['sample_name'] != 'DARK_NOBEAM']
+  doi = doi.loc[doi['sample_name'] != 'DARK_BEAM']
+  
+  # filter shit data
+  # 6550 to 7177
+  #maskA = doi['trigger_id'] < 655
+  #maskB = doi['trigger_id'] > 7177
+  #doi = doi.loc[maskA | maskB] # ignore shit data
+  #doi = doi.loc[doi['trigger_id'] > 9118] # only latest
+  
+  maskA = doi['trigger_id'] > 9450 #only 11 and 16
+  maskB = doi['trigger_id'] < 9549  #only 11 and 16
+  doi = doi.loc[maskA & maskB] # ignore shit data  
+  
   mod = LinearModel()
   samples = doi['sample_name'].unique()
-  sampleCupFraction = {}
   camCharge = {}
   camTime = {}
   sampleGausVol = {}
-  usefulProtons = {}
+  protonsOnCup = {}
   pa = {}
   pb = {}
   slopes = {}
@@ -372,12 +419,14 @@ if enable_this_section:
   for sample in samples:
     sampleRow = doi.loc[doi['sample_name'] == sample]
     camCharge[sample] = np.array(sampleRow['camCharge']) * 1e-9
-    sampleGausVol[sample] = np.array(sampleRow['sampleGausVol'])
-    sampleCupFraction[sample] = np.array(sampleRow['sampleCupFraction'])
+    sampleGausVol[sample] = np.array(sampleRow['gaussianVolume']) * np.array(sampleRow['samplePhotonsPerCamPhoton'])
+    #sampleCupFraction[sample] = np.array(sampleRow['sampleCupFraction'])
     camTime[sample] = np.array(sampleRow['t_camExposure'])
-    usefulProtons[sample] = (camCharge[sample]/constants.e * sampleCupFraction[sample]).round()
-    x = usefulProtons[sample]/camTime[sample]
-    y = sampleGausVol[sample]/camTime[sample]*samplePhotonsPerCamPhoton
+    #usefulProtons[sample] = (camCharge[sample]/constants.e * sampleCupFraction[sample]).round()
+    #x = usefulProtons[sample]/camTime[sample]
+    protonsOnCup[sample] = camCharge[sample]/constants.e
+    x = protonsOnCup[sample]/camTime[sample]
+    y = sampleGausVol[sample]/camTime[sample]
     p = ax.plot(x,y,linestyle = 'None',marker='o',alpha=0.2)
     color = p[0].get_color()
     colors[sample] = color
@@ -397,8 +446,8 @@ if enable_this_section:
     pa[sample] = (x_mid,y_mid)
     pb[sample] = (xp2,yp2)
     
-  ax.set_xlabel('Proton Flux Through Sample [proton/s]')
-  ax.set_ylabel('Photon Emission From Sample [photon/s]')
+  ax.set_xlabel('Proton Flux Into Cup [proton/s]')
+  ax.set_ylabel('Estimated Total Photon Generation [photon/s]') # this is the volume under the gaussian fit
   ax.set_title('Photons per Proton'+'|'+session)
   ax.legend()
   ax.grid()
@@ -436,6 +485,7 @@ if enable_this_section:
     sampleRow = doi.loc[doi['sample_name'] == sample]
     pPerP.append(np.array(sampleRow['bHeight'].astype(float)))
   
+  
   ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
   ax.yaxis.grid()
   for i in range(len(samples)):
@@ -448,37 +498,6 @@ if enable_this_section:
   fig.tight_layout() 
 
 
-# PperP boxplot
-enable_this_section = False
-if enable_this_section:
-  # filter out beam off data
-  doi = df.loc[df['avgBeamCurrent'] < 20]
-  
-  # filter bad cam fits
-  doi = doi.loc[doi['gaussianAmplitude'] > 0]
-  
-  # filter setup runs
-  doi = doi.loc[doi['trigger_id'] >= 1143] # ignore setup data
-  doi = doi.loc[doi['trigger_id'] <= 1343] # ignore setup data
-  
-  samples = doi['sample_name'].unique()
-  trigger = {}
-  pPerP = []
-  fig, ax = plt.subplots()
-  for sample in samples:
-    sampleRow = doi.loc[doi['sample_name'] == sample]
-    pPerP.append(np.array(sampleRow['photonsPerProtonGaus']))
-  
-  ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
-  ax.yaxis.grid()
-  for i in range(len(samples)):
-    y = pPerP[i]
-    x = np.random.normal(1+i, 0.04, size=len(y))
-    ax.plot(x, y, 'm.', alpha=0.1)
-  #plt.xlabel('Trigger Number')
-  ax.set_ylabel('Photons per Proton')
-  ax.set_title(session)
-  fig.tight_layout()
 
 
 

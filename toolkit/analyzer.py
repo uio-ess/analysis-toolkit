@@ -25,8 +25,6 @@ class analyzer:
   Analyzes HDF5 sample files and enters sample data into the sample database
   for the ESS proton beam imaging system
   """
-  
-  samplePhotonsPerCamPhoton = None
 
   def __init__(self, files, database = ':memory:', drawPlots = False, freezeObj = None, fitSpot = True, verbose = False):
     self.full_paths = []
@@ -190,20 +188,22 @@ class analyzer:
     x = self.currentX[lMask & uMask]
     y = self.currentY[lMask & uMask]
     
-    camCharge = np.trapz(y, x=x) * -1  #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
-    self.sd['camCharge'] = camCharge * 1e9
-    print('Average current during camera exposure ({:}[ms]): {:}[nA]'.format(self.t_camExposure*1000,y.mean()*1e9))
+    #accuracy issues with trapz? TODO: compare to MATLAB's quadgk
+    camCharge = np.trapz(y, x=x) * -1  # volume under the current mesuremet curve while the camera was exposing
+    self.sd['camCharge'] = camCharge * 1e9 # store camera charge as nC
+    print('Nanocoulombs during camera exposure: {:}[nC]'.format(self.sd['camCharge']))
+    print('Average current during camera exposure ({:}[ms]): {:}[nA]'.format(self.t_camExposure*1000,camCharge/self.t_camExposure*1e9))
     
     protons = round(camCharge/constants.e)
     
     if 'gaussianVolume' in self.sd:
       # gaus fit takes gaussian out to infinity and thus should not be impacted by sample size
-      self.sd['photonsPerProtonGaus'] = self.sd['gaussianVolume'] * self.samplePhotonsPerCamPhoton / protons
+      self.sd['photonsPerProtonGaus'] = self.sd['gaussianVolume'] * self.sd['samplePhotonsPerCamPhoton'] / protons
       print("Photons per proton from gaussian fit: {:.0f}".format(self.sd['photonsPerProtonGaus']))
       
     if 'blurVolume' in self.sd:
       # this will be messed up for small samples since many of the protons caught by the cup will not make light since they miss the sample
-      self.sd['photonsPerProtonBlur'] = self.sd['blurVolume'] * self.samplePhotonsPerCamPhoton / protons
+      self.sd['photonsPerProtonBlur'] = self.sd['blurVolume'] * self.sd['samplePhotonsPerCamPhoton'] / protons
       print("Photons per proton from median filtered image: {:.0f}".format(self.sd['photonsPerProtonBlur']))
 
     # integration range for spectrometer
@@ -262,6 +262,7 @@ class analyzer:
     # NOTE: how valid is this math for non-point sources?
     # see https://en.wikipedia.org/wiki/Lambert%27s_cosine_law
     
+    self.sd['f_number'] = f_number
     aperture_diameter = focal_length / f_number  # camera aperture diameter
     aperture_area = constants.pi * (aperture_diameter / 2) ** 2 # camera aperture area
     solid_angle = aperture_area / distance_to_target ** 2  # solid angle of camera aperture
@@ -269,7 +270,10 @@ class analyzer:
     assumed_emission_steradians = 4 * constants.pi  # TODO: consider 2pi emission
     
     # then for every photon seen by the camera, the sample emitted this many photons
-    self.samplePhotonsPerCamPhoton = assumed_emission_steradians / solid_angle / lens_transmission
+    #self.samplePhotonsPerCamPhoton = assumed_emission_steradians / solid_angle / lens_transmission
+    # for every photon the camera sees, this many photons were generated at the sample
+    self.sd['samplePhotonsPerCamPhoton'] = assumed_emission_steradians / solid_angle / lens_transmission
+    print("For every photon the camera sees, the sample generated {:.0f}".format(self.sd['samplePhotonsPerCamPhoton']))
     
     if self.drawPlots:
       # for the image
@@ -313,21 +317,22 @@ class analyzer:
     
     # detect camera saturation
     saturation_percent_of_max = 5  # any pixel within this percent of max is considered saturated
-    saturation_percent_of_pixels = 4  # if any more than this percent of total pixels in ROI are saturated, then we set the saturated flag for the image
+    saturation_percent_of_pixels = 1  # if any more than this percent of total pixels in ROI are saturated, then we set the saturated flag for the image
     sat_thresh = np.int16(round((1-(saturation_percent_of_max / 100)) * maxCamValue))  # any pixel over this value is saturated
     nSatPix = np.count_nonzero(blur.ravel() >= sat_thresh)  # number of saturated pixels
     cameraSaturated = True
     if nSatPix < nPix*saturation_percent_of_pixels / 100:
       cameraSaturated = False
     else:
-      print("WARNING: Image saturation detected. >{:}% of pixels are within {:}% of their max value".format(saturation_percent_of_max, saturation_percent_of_pixels))
+      print("WARNING: Image saturation detected. >{:}% of pixels are within {:}% of their max value".format(saturation_percent_of_pixels, saturation_percent_of_max))
     
+    cantFindSubstrate = True
     if (not cameraSaturated):
       self.sd['blurVolume'] = bg0_blur.sum() * photons_per_count
       self.sd['blurAmplitude'] = bg0_blur.max() * photons_per_count
       
-      print("Median Filtered Image Peak: {:.0f} [photons]".format(self.sd['blurAmplitude']))
-      print("Median Filtered Image Volume: {:.0f} [photons]".format(self.sd['blurVolume']))
+      print("Median filtered image peak: {:.0f} [photons]".format(self.sd['blurAmplitude']))
+      print("Median filtered image volume: {:.0f} [photons]".format(self.sd['blurVolume']))
         
       # global auto-threshold the image (for finding the substrate)
       thresh_copy = camData.copy() # copy camera data so we don't mess up the origional
@@ -336,8 +341,11 @@ class analyzer:
       thresh_blur = cv2.medianBlur(src=thresh_copy, ksize=15) # big filter here    
       ret,thresh = cv2.threshold(thresh_blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU) # global auto-threshold
       nz = cv2.findNonZero(thresh) # thresh --> bool
-      mar = cv2.minAreaRect(nz) # find our substrate, minimum area rectangle = ((center_x,center_y),(width,height), angle)
-      
+      if nz is not None:
+        mar = cv2.minAreaRect(nz) # find our substrate, minimum area rectangle = ((center_x,center_y),(width,height), angle)
+      else: # this gets hit when the camera data is dark
+        mar = ((0,0),(0,0), 0)
+        
       # caculate the ROI
       boxScaleFactor = 0.70 # reduce ROI by this factor to prevent substrate edge effects
       smaller = (mar[0],tuple([x*boxScaleFactor for x in mar[1]]), mar[2]) # scale box width and height
@@ -353,7 +361,6 @@ class analyzer:
         plt.title('Camera ROI|' + self.titleString)
       
       # did we find the substrate?
-      cantFindSubstrate = True
       approxSubstrateArea = mar[1][0] * mar[1][1]  # compute substrate area
       substrateAreaFactor = 0.8    
       if nPix * substrateAreaFactor > approxSubstrateArea: # test if the ROI is huge
@@ -419,100 +426,102 @@ class analyzer:
         sigmaX = sigma[0]
         sigmaY = sigma[1]
         
-        totalVolume = abs(2 * constants.pi * amplitude * photons_per_count * sigmaX * sigmaY)        
+        totalVolume = 2 * constants.pi * amplitude * photons_per_count * sigmaX * sigmaY
         self.sd['gaussianAmplitude'] = amplitude * photons_per_count
-        print("Gaussian Spot Amplitude: {:.0f} [photons]".format(self.sd['gaussianAmplitude']))
+        print("Gaussian spot amplitude seen by camera: {:.0f} [photons] (that's {:.0f} photons per second)".format(self.sd['gaussianAmplitude'],self.sd['gaussianAmplitude']/self.t_camExposure))
+        print("Gaussian spot amplitude generated by sample: {:.0f} [photons] (that's {:.0f} photons per second)".format(self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton'],self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton']/self.t_camExposure))
         self.sd['gaussianVolume'] = totalVolume
-        print("Gaussian Spot Volume: {:.0f} [photons]".format(totalVolume))
+        print("Gaussian spot volume seen by camera: {:.0f} [photons]  (that's {:.3g} photons per second)".format(totalVolume,totalVolume/self.t_camExposure))
+        print("Gaussian spot volume generated by sample: {:.3g} [photons] (that's {:.3g} photons per second)".format(totalVolume*self.sd['samplePhotonsPerCamPhoton'],totalVolume*self.sd['samplePhotonsPerCamPhoton']/self.t_camExposure))
         self.sd['sigmaA'] = sigmaX
         self.sd['sigmaB'] = sigmaY
     
-      if self.drawPlots:
-        fitSurface2D = twoDG_model.eval(x=x, y=y, offset=0, params=fitResult.params)
+        if self.drawPlots:
+          fitSurface2D = twoDG_model.eval(x=x, y=y, offset=0, params=fitResult.params)
+          
+          # let's make some evaluation lines
+          nPoints = 100
+          nSigmas = 4 # line length, number of sigmas to plot in each direction
+          rA = np.linspace(-nSigmas*sigma[0], nSigmas*sigma[0], nPoints) # radii (in polar coords for line A)
+          AX = rA*np.cos(theta+np.pi/2) + peakPos[0] # x values for line A
+          AY = rA*np.sin(theta+np.pi/2) + peakPos[1] # y values for line A
         
-        # let's make some evaluation lines
-        nPoints = 100
-        nSigmas = 4 # line length, number of sigmas to plot in each direction
-        rA = np.linspace(-nSigmas*sigma[0], nSigmas*sigma[0], nPoints) # radii (in polar coords for line A)
-        AX = rA*np.cos(theta+np.pi/2) + peakPos[0] # x values for line A
-        AY = rA*np.sin(theta+np.pi/2) + peakPos[1] # y values for line A
-      
-        rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
-        BX = rB*np.cos(theta) + peakPos[0] # x values for line B
-        BY = rB*np.sin(theta) + peakPos[1] # y values for line B
-              
-        f = interpolate.RectBivariateSpline(xv, yv, camData) # linear interpolation for data surface
-      
-        lineAData = f.ev(AX,AY)
-        lineAFit = twoDG_model.eval(x=AX, y=AY, offset=background, params=fitResult.params)
-      
-        lineBData = f.ev(BX,BY)
-        lineBFit = twoDG_model.eval(x=BX, y=BY, offset=background, params=fitResult.params)
-      
-        residuals = lineBData - lineBFit
-        ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((lineBData - np.mean(lineBData)) ** 2)
-        r2 = 1 - (ss_res / ss_tot)
+          rB = np.linspace(-nSigmas*sigma[1],nSigmas*sigma[1],nPoints) # radii (in polar coords for line B)
+          BX = rB*np.cos(theta) + peakPos[0] # x values for line B
+          BY = rB*np.sin(theta) + peakPos[1] # y values for line B
+                
+          f = interpolate.RectBivariateSpline(xv, yv, camData) # linear interpolation for data surface
         
-        fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
-        fig.suptitle('Camera|' + self.titleString, fontsize=10)
-        axes[0,0].matshow(camData, cmap=plt.cm.copper)
-        axes[0,0].contour(y, x, mask, 3, colors='yellow', alpha=0.2)
-        #thresh
-        #whereIsROI2 = cv2.drawContours(camData, [box], 0, 50, 3)
-        #axes[0,0].matshow(whereIsROI2, cmap=plt.cm.copper)  # 
-        ax.axes.xaxis.tick_bottom()
-
-        if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
-          axes[0,0].contour(y, x, fitSurface2D, 3, colors='gray', alpha=0.5)
-        else:
-          print('Warning: contour() bug avoided')
+          lineAData = f.ev(AX,AY)
+          lineAFit = twoDG_model.eval(x=AX, y=AY, offset=background, params=fitResult.params)
         
-        axes[0,0].plot(AY,AX,'r', alpha=0.5) # plot line A
-        axes[0,0].plot(BY,BX,'g', alpha=0.5) # plot line B
-        axes[0,0].set_title("Image Data")
-        axes[0,0].set_ylim([xv.max(), xv.min()])
-        axes[0,0].set_xlim([yv.min(), yv.max()])
-        axes[0,0].xaxis.tick_bottom()
-      
-        axes[1,0].plot(rA, lineAData, 'r', label='Data')
-        axes[1,0].plot(rA, lineAFit, 'k', label='Fit')
-        axes[1,0].set_title('Red Line Cut')
-        axes[1,0].set_xlabel('Distance from center of spot [pixels]')
-        axes[1,0].set_ylabel('Magnitude [counts]')
-        axes[1,0].grid(linestyle = '--')
-        handles, labels = axes[1,0].get_legend_handles_labels()
-        axes[1,0].legend(handles, labels)        
-      
-        axes[1,1].plot(rB,lineBData,'g',label='Data')
-        axes[1,1].plot(rB,lineBFit,'k',label='Fit')
-        axes[1,1].set_title('Green Line Cut')
-        axes[1,1].set_xlabel('Distance from center of spot [pixels]')
-        axes[1,1].set_ylabel('Magnitude [counts]')
-        axes[1,1].yaxis.set_label_position("right")
-        axes[1,1].grid(linestyle='--')
-        handles, labels = axes[1,1].get_legend_handles_labels()
-        axes[1,1].legend(handles, labels)
+          lineBData = f.ev(BX,BY)
+          lineBFit = twoDG_model.eval(x=BX, y=BY, offset=background, params=fitResult.params)
         
-      
-        axes[0,1].axis('off')
-        axes[0,1].set_title('Fit Details')
+          residuals = lineBData - lineBFit
+          ss_res = np.sum(residuals**2)
+          ss_tot = np.sum((lineBData - np.mean(lineBData)) ** 2)
+          r2 = 1 - (ss_res / ss_tot)
+          
+          fig, axes = plt.subplots(2, 2,figsize=(8, 6), facecolor='w', edgecolor='k')
+          fig.suptitle('Camera|' + self.titleString, fontsize=10)
+          axes[0,0].matshow(camData, cmap=plt.cm.copper)
+          axes[0,0].contour(y, x, mask, 3, colors='yellow', alpha=0.2)
+          #thresh
+          #whereIsROI2 = cv2.drawContours(camData, [box], 0, 50, 3)
+          #axes[0,0].matshow(whereIsROI2, cmap=plt.cm.copper)  # 
+          ax.axes.xaxis.tick_bottom()
+  
+          if len(np.unique(fitSurface2D)) is not 1: # this works around a bug in contour()
+            axes[0,0].contour(y, x, fitSurface2D, 3, colors='gray', alpha=0.5)
+          else:
+            print('Warning: contour() bug avoided')
+          
+          axes[0,0].plot(AY,AX,'r', alpha=0.5) # plot line A
+          axes[0,0].plot(BY,BX,'g', alpha=0.5) # plot line B
+          axes[0,0].set_title("Image Data")
+          axes[0,0].set_ylim([xv.max(), xv.min()])
+          axes[0,0].set_xlim([yv.min(), yv.max()])
+          axes[0,0].xaxis.tick_bottom()
         
-        logMessages = io.StringIO()
-        print("Green Line Cut R^2 = {:0.8f}".format(r2), file=logMessages)
-        print("Peak = {:+011.5f} [counts]\n".format(amplitude+background), file=logMessages)
-        print("     ====Fit Parameters====", file=logMessages)
-        print("Amplitude = {:+011.5f} [counts]".format(amplitude), file=logMessages)
-        print("Center X  = {:+011.5f} [pixels]".format(peakPos[1]), file=logMessages)
-        print("Center Y  = {:+011.5f} [pixels]".format(peakPos[0]), file=logMessages)
-        print("Sigma X   = {:+011.5f} [pixels]".format(sigma[1]), file=logMessages)
-        print("Sigma Y   = {:+011.5f} [pixels]".format(sigma[0]), file=logMessages)
-        print("Rotation  = {:+011.5f} [radians]".format(theta), file=logMessages)
-        print("Baseline  = {:+011.5f} [counts]".format(background), file=logMessages)
-        logMessages.seek(0)
-        messages = logMessages.read()      
+          axes[1,0].plot(rA, lineAData, 'r', label='Data')
+          axes[1,0].plot(rA, lineAFit, 'k', label='Fit')
+          axes[1,0].set_title('Red Line Cut')
+          axes[1,0].set_xlabel('Distance from center of spot [pixels]')
+          axes[1,0].set_ylabel('Magnitude [counts]')
+          axes[1,0].grid(linestyle = '--')
+          handles, labels = axes[1,0].get_legend_handles_labels()
+          axes[1,0].legend(handles, labels)        
         
-        axes[0,1].text(0,0,messages, family='monospace')
+          axes[1,1].plot(rB,lineBData,'g',label='Data')
+          axes[1,1].plot(rB,lineBFit,'k',label='Fit')
+          axes[1,1].set_title('Green Line Cut')
+          axes[1,1].set_xlabel('Distance from center of spot [pixels]')
+          axes[1,1].set_ylabel('Magnitude [counts]')
+          axes[1,1].yaxis.set_label_position("right")
+          axes[1,1].grid(linestyle='--')
+          handles, labels = axes[1,1].get_legend_handles_labels()
+          axes[1,1].legend(handles, labels)
+          
+        
+          axes[0,1].axis('off')
+          axes[0,1].set_title('Fit Details')
+          
+          logMessages = io.StringIO()
+          print("Green Line Cut R^2 = {:0.8f}".format(r2), file=logMessages)
+          print("Peak = {:+011.5f} [counts]\n".format(amplitude+background), file=logMessages)
+          print("     ====Fit Parameters====", file=logMessages)
+          print("Amplitude = {:+011.5f} [counts]".format(amplitude), file=logMessages)
+          print("Center X  = {:+011.5f} [pixels]".format(peakPos[1]), file=logMessages)
+          print("Center Y  = {:+011.5f} [pixels]".format(peakPos[0]), file=logMessages)
+          print("Sigma X   = {:+011.5f} [pixels]".format(sigma[1]), file=logMessages)
+          print("Sigma Y   = {:+011.5f} [pixels]".format(sigma[0]), file=logMessages)
+          print("Rotation  = {:+011.5f} [radians]".format(theta), file=logMessages)
+          print("Baseline  = {:+011.5f} [counts]".format(background), file=logMessages)
+          logMessages.seek(0)
+          messages = logMessages.read()      
+          
+          axes[0,1].text(0,0,messages, family='monospace')
 
   # calculates a 2d gaussian's height, x, y position and x and y sigma values from surface height data
   def moments(data):
