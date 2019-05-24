@@ -10,6 +10,8 @@ from toolkit import analyzer
 
 parser = argparse.ArgumentParser(description='Peek at beam diagnostic data in hdf5 files')
 parser.add_argument('--draw-plots', dest='drawPlots', action='store_true', default=False, help="Draw analysis plots or each file processed")
+parser.add_argument('--filter-current', dest='do_sw_current_filter', action='store_true', default=False, help="Do software filter on current waveform")
+parser.add_argument('--cam-pv', dest='cam_pv', type=str, default="", help="Camera image PV base for real time fitting mode (maybe CAM1:)")
 parser.add_argument('--no-spot-fit', dest='fitSpot', action='store_false', default=True, help="Do not fit camera data to 2D gaussian")
 parser.add_argument('--database', default=':memory:', help="Save/append analysis data to this sqlite database file")
 parser.add_argument('--freeze-file', dest='freezeObj', type=argparse.FileType('x'), help="Freeze/draw data to a .csv file")
@@ -29,6 +31,10 @@ if pArgs.database != ':memory:':
     print("Error: Database file name must end in .db")
     exit(1)
 
-a = analyzer(files = pArgs.input, verbose=pArgs.verbose, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj, fitSpot = pArgs.fitSpot)
+a = analyzer(files = pArgs.input, verbose=pArgs.verbose, database=pArgs.database, drawPlots=pArgs.drawPlots, freezeObj = pArgs.freezeObj, fitSpot = pArgs.fitSpot, do_sw_current_filter = pArgs.do_sw_current_filter, cam_pv=pArgs.cam_pv)
 
-a.processFiles()
+if pArgs.cam_pv == "":
+  a.processFiles()
+else:
+  print("Realtime camera fit mode activated")
+  a.realtimeFit()

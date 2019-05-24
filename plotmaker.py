@@ -14,8 +14,9 @@ from scipy import constants
 from pathlib import Path
 home = str(Path.home())
 
-db_name = 'ocl_dec.db'
-session = "DEC '18 OCL" # TODO: read this from the files
+#db_name = 'ocl_dec.db'
+db_name = 'ocl_may.db'
+session = "May '19 OCL" # TODO: read this from the files
 fullpath = home + '/' + db_name 
 
 
@@ -349,15 +350,23 @@ if enable_this_section:
   # filter bad cam fits
   doi = doi.loc[doi['gaussianAmplitude'] > 0]
   
+  # filter exposure issues
+  doi = doi.loc[doi['photonsPerProtonGaus'] > 0]
+  
   # ignore chromox data
   doi = doi.loc[doi['sample_name'] != 'DARK_NOBEAM']
   doi = doi.loc[doi['sample_name'] != 'DARK_BEAM']
   
-  # filter shit data
-  # 6550 to 7177
-  maskA = doi['trigger_id'] > 9450 #only 11 and 16
-  maskB = doi['trigger_id'] < 9549  #only 11 and 16
-  doi = doi.loc[maskA & maskB] # ignore shit data
+  # filter shots
+  #maskA = doi['trigger_id'] > 3683
+  #doi = doi.loc[maskA]
+
+  maskA = doi['trigger_id'] > 3683
+  maskB = doi['trigger_id'] < 4600
+  doi = doi.loc[maskA & maskB]
+  #maskB = doi['trigger_id'] < 4132  
+  #doi = doi.loc[maskA & maskB]
+  #doi = doi.loc[maskA]
   #doi = doi.loc[doi['trigger_id'] > 9118] # only latest
   
   samples = doi['sample_name'].unique()
@@ -367,7 +376,7 @@ if enable_this_section:
   for sample in samples:
     sampleRow = doi.loc[doi['sample_name'] == sample]
     pPerP.append(np.array(sampleRow['photonsPerProtonGaus']))
-  
+    
   ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
   ax.yaxis.grid()
   for i in range(len(samples)):
@@ -389,20 +398,20 @@ if enable_this_section:
   # filter bad cam fits
   doi = doi.loc[doi['gaussianAmplitude'] > 0]
   
+  # filter exposure issues
+  doi = doi.loc[doi['photonsPerProtonGaus'] > 0]  
+  
   # ignore chromox data
   doi = doi.loc[doi['sample_name'] != 'DARK_NOBEAM']
   doi = doi.loc[doi['sample_name'] != 'DARK_BEAM']
   
-  # filter shit data
-  # 6550 to 7177
-  #maskA = doi['trigger_id'] < 655
-  #maskB = doi['trigger_id'] > 7177
-  #doi = doi.loc[maskA | maskB] # ignore shit data
-  #doi = doi.loc[doi['trigger_id'] > 9118] # only latest
-  
-  maskA = doi['trigger_id'] > 9450 #only 11 and 16
-  maskB = doi['trigger_id'] < 9549  #only 11 and 16
-  doi = doi.loc[maskA & maskB] # ignore shit data  
+  # filter shots
+  #maskA = doi['trigger_id'] > 3683
+  #doi = doi.loc[maskA]
+
+  maskA = doi['trigger_id'] > 3683
+  maskB = doi['trigger_id'] < 4600
+  doi = doi.loc[maskA & maskB]
   
   mod = LinearModel()
   samples = doi['sample_name'].unique()
@@ -480,11 +489,11 @@ if enable_this_section:
   samples = doi['sample_name'].unique()
   trigger = {}
   pPerP = []
+  exposure = []
   fig, ax = plt.subplots()
   for sample in samples:
     sampleRow = doi.loc[doi['sample_name'] == sample]
     pPerP.append(np.array(sampleRow['bHeight'].astype(float)))
-  
   
   ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
   ax.yaxis.grid()
@@ -550,7 +559,56 @@ if enable_this_section:
   #plt.title(sample)
   fig.tight_layout()
 
+# PperP boxplot with colored dots
+enable_this_section = False
+if enable_this_section:
+  # filter out beam off data
+  doi = df.loc[df['avgBeamCurrent'] < -2]
+  
+  # filter bad cam fits
+  doi = doi.loc[doi['gaussianAmplitude'] > 0]
+  
+  # ignore chromox data
+  doi = doi.loc[doi['sample_name'] != 'DARK_NOBEAM']
+  doi = doi.loc[doi['sample_name'] != 'DARK_BEAM']
+  
+  # filter shit data
+  # 6550 to 7177
+  maskA = doi['trigger_id'] > 9450 #only 11 and 16
+  maskB = doi['trigger_id'] < 9549  #only 11 and 16
+  doi = doi.loc[maskA & maskB] # ignore shit data
+  #doi = doi.loc[doi['trigger_id'] > 9118] # only latest
+  
+  samples = doi['sample_name'].unique()
+  #exposures = doi['t_camExposure'].unique()
+  exposures = doi['t_camExposure'].unique()
+  trigger = {}
+  exposure = []
+  pPerP = []
+  fig, ax = plt.subplots()
+  for sample in samples:
+    sampleRow = doi.loc[doi['sample_name'] == sample]
+    pPerP.append(np.array(sampleRow['photonsPerProtonGaus']))
+    exposure.append(np.array(sampleRow['t_camExposure']))
+  
+ #exposure    0.5      0.25  0.166666  0.125     0.1    0.083333   0.071428 0.0625  0.055555  0.05    ])  
+  colormap = ['black', 'red', 'green', 'yellow', 'blue', 'purple', 'cyan', 'white', 'red', 'red']
+  ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
+  ax.yaxis.grid()
+  for i in range(len(samples)):
+    e = exposure[i]
+    ei = [list(exposures).index(a) for a in e]
+    bigC = [colormap[guy] for guy in ei]
+    y = pPerP[i]
+    x = np.random.normal(1+i, 0.04, size=len(y))
+    #ax.plot(x, y, 'm.', alpha=0.1, c = 'brown')
+    ax.scatter(x, y, color = bigC)
+  #plt.xlabel('Trigger Number')
+  ax.set_ylabel('Photons per Proton')
+  ax.set_title(session)
+  fig.tight_layout()
+
+
 
 plt.show()
-
 print("Done")

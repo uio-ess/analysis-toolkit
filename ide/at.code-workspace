@@ -1,0 +1,33 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"launch": {
+		"configurations": [
+			{
+				"name": "Python: Current File (live)",
+				"type": "python",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal",
+				"args": [
+					"--cam-pv", "CAM1"
+				],
+			},
+			{
+				"name": "Python: Current File (batch)",
+				"type": "python",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal",
+				"args": [
+					"-v",
+					"--draw-plots",
+					"/var/data/ocl/2019-05-22/0000000000005403-HVCOMB-Al-Ni-300um-Cooling.h5"
+				],
+			},
+		],
+	}
+}
