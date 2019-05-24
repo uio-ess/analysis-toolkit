@@ -59,19 +59,6 @@ class analyzer:
       #camData = np.rot90(camData)
 
       processed = self.process_cam_image(camData, title_string, draw_plots = self.drawPlots)
-
-      if processed['saturated'] == False:
-        print("Median filtered image peak: {:.0f} [counts]".format(processed['blur_peak']))
-        print("Median filtered image volume: {:.3g} [counts]".format(processed['blur_volume']))
-      if processed['good_fit']:
-        totalVolume = 2 * constants.pi * processed['amplitude'] * processed['sigmaX'] * processed['sigmaY']
-        print("Gaussian spot amplitude seen by camera: {:.0f} [counts]".format(processed['amplitude']))
-        print("Gaussian spot volume seen by camera: {:.3g} [counts]".format(totalVolume))
-        print("Gaussian spot sigma X : {:.2f} [pixels]".format(processed['sigmaX']))
-        print("Gaussian spot sigma Y : {:.2f} [pixels]".format(processed['sigmaY']))
-        print("Gaussian spot position X : {:.2f} [pixels]".format(processed['peakPosX']))
-        print("Gaussian spot position Y : {:.2f} [pixels]".format(processed['peakPosY']))
-        print("Gaussian spot rotation : {:.4f} [radians]".format(processed['theta']))
       
       self.drawPlots and plt.show()
       print("Done")
@@ -113,7 +100,7 @@ class analyzer:
     """process a matrix of camera data"""
     ret = {}
     # values in pixels and counts
-    ret['good_fit'] = False
+    ret['fit_fail'] = True
     ret['saturated'] = True
     ret['sigmaX'] = 0
     ret['sigmaY'] = 0
@@ -182,13 +169,11 @@ class analyzer:
     if (not cameraSaturated):
       ret['blur_peak'] = bg0_blur.max()
       ret['blur_volume'] = bg0_blur.sum()
-
-      #self.sd['blurVolume'] = bg0_blur.sum() * photons_per_count
-      #self.sd['blurAmplitude'] = bg0_blur.max() * photons_per_count
       
-      #print("Median filtered image peak: {:.0f} [photons]".format(ret['blur_peak']))
-      #print("Median filtered image volume: {:.0f} [photons]".format(ret['blur_volume']))
-        
+      if self.verbose:
+        print("Median filtered image peak: {:.0f} [counts]".format(ret['blur_peak']))
+        print("Median filtered image volume: {:.3g} [counts]".format(ret['blur_volume']))
+
       # global auto-threshold the image (for finding the substrate)
       thresh_copy = data.copy() # copy camera data so we don't mess up the origional
       thresh_copy = (thresh_copy/nCameraValues*(2**8-1)).round()  # re-normalize to be 8 bit
@@ -278,6 +263,16 @@ class analyzer:
         ret['peakPosY'] = fitResult.params['yo'].value
         ret['amplitude'] = fitResult.params['amplitude'].value
         ret['theta'] = fitResult.params['theta'].value
+
+        if self.verbose:
+          totalVolume = 2 * constants.pi * ret['amplitude'] * ret['sigmaX'] * ret['sigmaY']
+          print("Gaussian spot amplitude seen by camera: {:.0f} [counts]".format(ret['amplitude']))
+          print("Gaussian spot volume seen by camera: {:.3g} [counts]".format(totalVolume))
+          print("Gaussian spot sigma X : {:.2f} [pixels]".format(ret['sigmaX']))
+          print("Gaussian spot sigma Y : {:.2f} [pixels]".format(ret['sigmaY']))
+          print("Gaussian spot position X : {:.2f} [pixels]".format(ret['peakPosX']))
+          print("Gaussian spot position Y : {:.2f} [pixels]".format(ret['peakPosY']))
+          print("Gaussian spot rotation : {:.4f} [radians]".format(ret['theta']))
 
         if draw_plots:
           theta = fitResult.params['theta'].value
@@ -579,7 +574,7 @@ class analyzer:
     
     # for every photon the camera sees, this many photons were generated at the sample
     self.sd['samplePhotonsPerCamPhoton'] = assumed_emission_steradians / solid_angle / lens_transmission
-    print("For every photon the camera sees, the sample generated {:.0f}".format(self.sd['samplePhotonsPerCamPhoton']))
+    print("For every photon the camera sees, the sample generated {:.4g}".format(self.sd['samplePhotonsPerCamPhoton']))
 
     camData = cam_group['data'][:]
 
@@ -589,15 +584,15 @@ class analyzer:
       self.sd['blurVolume'] = processed_cam['blur_volume'] * photons_per_count
       self.sd['blurAmplitude'] = processed_cam['blur_peak'] * photons_per_count
       print("Median filtered image peak: {:.0f} [photons]".format(self.sd['blurAmplitude']))
-      print("Median filtered image volume: {:.0f} [photons]".format(self.sd['blurVolume']))
+      print("Median filtered image volume: {:.3g} [photons]".format(self.sd['blurVolume']))
 
-    if processed_cam['good_fit']:
+    if processed_cam['fit_fail'] == False:
       totalVolume = 2 * constants.pi * processed_cam['amplitude'] * photons_per_count * processed_cam['sigmaX'] * processed_cam['sigmaY']
       self.sd['gaussianAmplitude'] = processed_cam['amplitude'] * photons_per_count
-      print("Gaussian spot amplitude seen by camera: {:.0f} [photons] (that's {:.0f} photons per second)".format(self.sd['gaussianAmplitude'],self.sd['gaussianAmplitude']/self.t_camExposure))
-      print("Gaussian spot amplitude generated by sample: {:.0f} [photons] (that's {:.0f} photons per second)".format(self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton'],self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton']/self.t_camExposure))
+      print("Gaussian spot amplitude seen by camera: {:.0f} [photons] (that's {:.3g} photons per second)".format(self.sd['gaussianAmplitude'],self.sd['gaussianAmplitude']/self.t_camExposure))
+      print("Gaussian spot amplitude generated by sample: {:.3g} [photons] (that's {:.0f} photons per second)".format(self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton'],self.sd['gaussianAmplitude']*self.sd['samplePhotonsPerCamPhoton']/self.t_camExposure))
       self.sd['gaussianVolume'] = totalVolume
-      print("Gaussian spot volume seen by camera: {:.0f} [photons]  (that's {:.3g} photons per second)".format(totalVolume,totalVolume/self.t_camExposure))
+      print("Gaussian spot volume seen by camera: {:.3g} [photons]  (that's {:.3g} photons per second)".format(totalVolume,totalVolume/self.t_camExposure))
       print("Gaussian spot volume generated by sample: {:.3g} [photons] (that's {:.3g} photons per second)".format(totalVolume*self.sd['samplePhotonsPerCamPhoton'],totalVolume*self.sd['samplePhotonsPerCamPhoton']/self.t_camExposure))
       self.sd['sigmaA'] = processed_cam['sigmaX']
       self.sd['sigmaB'] = processed_cam['sigmaY']
