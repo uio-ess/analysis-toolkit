@@ -196,6 +196,7 @@ if enable_this_section:
     #plt.legend()
     plt.grid()
 
+
 # for peak vs charge seen plots
 enable_this_section = False
 if enable_this_section:
@@ -362,7 +363,7 @@ if enable_this_section:
   #doi = doi.loc[maskA]
 
   maskA = doi['trigger_id'] > 3683
-  maskB = doi['trigger_id'] < 4600
+  maskB = doi['trigger_id'] < 4592
   doi = doi.loc[maskA & maskB]
   #maskB = doi['trigger_id'] < 4132  
   #doi = doi.loc[maskA & maskB]
@@ -378,6 +379,8 @@ if enable_this_section:
     pPerP.append(np.array(sampleRow['photonsPerProtonGaus']))
     
   ax.boxplot(pPerP, labels=samples, notch=False, showfliers=False, showmeans=True, meanline=True)
+  for tick in ax.get_xticklabels():
+    tick.set_rotation(-15)
   ax.yaxis.grid()
   for i in range(len(samples)):
     y = pPerP[i]
@@ -410,7 +413,7 @@ if enable_this_section:
   #doi = doi.loc[maskA]
 
   maskA = doi['trigger_id'] > 3683
-  maskB = doi['trigger_id'] < 4600
+  maskB = doi['trigger_id'] < 4592
   doi = doi.loc[maskA & maskB]
   
   mod = LinearModel()
@@ -507,9 +510,6 @@ if enable_this_section:
   fig.tight_layout() 
 
 
-
-
-
 # sigma stuff
 enable_this_section = False
 if enable_this_section:
@@ -558,6 +558,7 @@ if enable_this_section:
   
   #plt.title(sample)
   fig.tight_layout()
+
 
 # PperP boxplot with colored dots
 enable_this_section = False
