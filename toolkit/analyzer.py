@@ -569,11 +569,12 @@ class analyzer:
     aperture_diameter = focal_length / f_number  # camera aperture diameter
     aperture_area = constants.pi * (aperture_diameter / 2) ** 2 # camera aperture area
     solid_angle = aperture_area / distance_to_target ** 2  # solid angle of camera aperture
+    effective_solid_angle = solid_angle * 1.5 # accounts for 50% reflection off the substrate
     
-    assumed_emission_steradians = 4 * constants.pi  # TODO: consider 2pi emission
+    assumed_emission_steradians = 4 * constants.pi  # the emission process spreds photons evenly over this many steradians
     
     # for every photon the camera sees, this many photons were generated at the sample
-    self.sd['samplePhotonsPerCamPhoton'] = assumed_emission_steradians / solid_angle / lens_transmission
+    self.sd['samplePhotonsPerCamPhoton'] = assumed_emission_steradians / effective_solid_angle / lens_transmission
     print("For every photon the camera sees, the sample generated {:.4g}".format(self.sd['samplePhotonsPerCamPhoton']))
 
     camData = cam_group['data'][:]
